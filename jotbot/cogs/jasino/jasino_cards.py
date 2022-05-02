@@ -90,6 +90,14 @@ class Blackjack():
 
         if len(stateStr) <= 0 or stateStr is None:
             self.dealCards()
+            totDealer = Blackjack.getHandBJValue(self.dealer)
+            totPlayer = Blackjack.getHandBJValue(self.player)
+
+            if totPlayer == 21 and totDealer != 21 and self.state == Blackjack.State.ongoing:
+                self.lastGameLoopOutcome += "You beat the dealer with a blackjack!\n"
+                self.state = Blackjack.State.playerWin
+                self.gameOver = True
+
             return
 
         state = stateStr.split(' ')
@@ -241,6 +249,7 @@ class Blackjack():
             self.lastGameLoopOutcome += "You beat the dealer with a blackjack!\n"
             self.state = Blackjack.State.playerWin
             self.gameOver = True
+            return
 
         if self.state == Blackjack.State.ongoing and not self.stand:
             if totDealer == 21 and totPlayer == 21:

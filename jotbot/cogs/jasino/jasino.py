@@ -306,7 +306,7 @@ class JasinoCog(commands.Cog, name = "jasino"):
                     payout = bet
                     await self.addBalance(ctx, bet)
                 case Blackjack.State.playerWin:
-                    payout = bet * 2
+                    payout = bet * 2 if Blackjack.getHandBJValue(bjGame.player) < 21 else bet * 2.5
                     await self.addBalance(ctx, payout)
 
             # Set bj state in DB to empty

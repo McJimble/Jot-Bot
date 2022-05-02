@@ -31,7 +31,7 @@ class FunTextCog(commands.Cog, name = "Fun Text"):
             if len(word) > 2 and word[0].lower() != replace and word.lower() not in exclude and word[0].lower() not in excludefirsts:
                 jRep = replace.upper() if word[0].isupper() else replace
 
-                if word[0].ower() in vowels:
+                if word[0].lower() in vowels:
                     if word.isupper():
                         word = jRep + word
                     else:
