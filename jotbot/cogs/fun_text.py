@@ -4,6 +4,7 @@ from random import *
 
 vowels = ['a', 'e', 'i', 'o', 'u']
 exclude = ["the", "i\'m", "and"]
+markdownSymbols = ["*", "**", "***", "__", "~~", "`", "__*", "__**", "__***", "<", ">", ";", "'", "!"]
 excludefirsts = ['w']
 locFileName = "res/Locations.txt"
 
@@ -23,21 +24,28 @@ class FunTextCog(commands.Cog, name = "Fun Text"):
     def letterify(self, originalStr, replace: str):
         words = originalStr
         finalJimmify = []
-        print(words)
         for word in words:
             if len(word) <= 0:
                 continue
 
             if len(word) > 2 and word[0].lower() != replace and word.lower() not in exclude and word[0].lower() not in excludefirsts:
                 jRep = replace.upper() if word[0].isupper() else replace
+                checkChar = word[0]
+                markDownEnd = 0
 
-                if word[0].lower() in vowels:
+                # Brute-force check for markdown/symbols to skip in the word (lazy ik)
+                for markdown in markdownSymbols:
+                    if markdown in word:
+                        markDownEnd = len(markdown)
+                        checkChar = word[markDownEnd]
+
+                if checkChar.lower() in vowels:
                     if word.isupper():
-                        word = jRep + word
+                        word = word[0:markDownEnd] + jRep + word[markDownEnd:-1]
                     else:
-                        word = jRep + word[0].lower() + word[1:len(word)]
+                        word = word[0:markDownEnd] + jRep + word[markDownEnd].lower() + word[markDownEnd:-1]
                 else:
-                    word = word.replace(word[0], jRep, 1)
+                    word = word.replace(word[markDownEnd], jRep, 1)
 
             finalJimmify.append(word)
 
