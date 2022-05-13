@@ -29,21 +29,21 @@ class FunTextCog(commands.Cog, name = "Fun Text"):
                 continue
 
             if len(word) > 2 and word[0].lower() != replace and word.lower() not in exclude and word[0].lower() not in excludefirsts:
-                jRep = replace.upper() if word[0].isupper() else replace
-                checkChar = word[0]
+                
+                # Brute-force check for markdown/symbols to skip in the word
                 markDownEnd = 0
+                wordLen = len(word)
+                while not word[markDownEnd].isalpha() and markDownEnd < wordLen:
+                    markDownEnd += 1
 
-                # Brute-force check for markdown/symbols to skip in the word (lazy ik)
-                for markdown in markdownSymbols:
-                    if markdown in word:
-                        markDownEnd = len(markdown)
-                        checkChar = word[markDownEnd]
-
-                if checkChar.lower() in vowels:
-                    if word.isupper():
-                        word = word[0:markDownEnd] + jRep + word[markDownEnd:-1]
+                # Replace first letter in the string.
+                # If it's capitalized, capitalize the replacement letter and lower the old one.
+                jRep = replace.upper() if word[markDownEnd].isupper() else replace
+                if word[markDownEnd].lower() in vowels:
+                    if word[markDownEnd].islower():
+                        word = word[0:markDownEnd] + jRep + word[markDownEnd:-1] + word[-1]
                     else:
-                        word = word[0:markDownEnd] + jRep + word[markDownEnd].lower() + word[markDownEnd:-1]
+                        word = word[0:markDownEnd] + jRep + word[markDownEnd].lower() + word[markDownEnd+1:-1] + word[-1]
                 else:
                     word = word.replace(word[markDownEnd], jRep, 1)
 

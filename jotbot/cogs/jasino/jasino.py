@@ -389,6 +389,52 @@ class JasinoCog(commands.Cog, name = "jasino"):
 
         await ctx.send(f"You rolled a: {rollTotal}")
 
+    @commands.command()
+    async def jasinoranking(self, ctx):
+        userID = ctx.author.id
+
+        # Get user ranking
+        self.dbCursor.execute(f"SELECT * FROM (SELECT *, RANK() OVER (ORDER BY balance DESC) rank FROM jasinousers) WHERE user_id = {userID}")
+        rankQuery = self.dbCursor.fetchone()
+
+        # Get total number of players
+        self.dbCursor.execute(f"SELECT COUNT(*) FROM jasinousers")
+        numUsers = self.dbCursor.fetchone()
+
+        finalStr = f"{ctx.author.name}, your overall ranking is: {rankQuery[-1]} out of {numUsers[0]} players:\n>>> "
+
+        # Use user ranking to get 5 surrounding rankings.
+        self.dbCursor.execute(f"SELECT * FROM (SELECT *, RANK() OVER (ORDER BY balance DESC) rank FROM jasinousers) WHERE rank <= {rankQuery[-1] + 2} AND rank >= {rankQuery[-1] - 2}")
+        surroundingRankings = self.dbCursor.fetchall()
+
+        for entry in surroundingRankings:
+            # Last value in entry is rank with this type of query. 
+            # Our table has column 1 and 2 as the display name and balance, so get them this way.
+            if entry[0] == ctx.author.id:
+                finalStr += f"**{entry[-1]}: {entry[1]} (${entry[2]})**\n"
+            else:
+                finalStr += f"{entry[-1]}: {entry[1]} (${entry[2]})\n"
+
+        await ctx.send(finalStr)
+        pass
+
+    @commands.command()
+    async def jeaderboard(self, ctx):
+
+        self.dbCursor.execute(f"SELECT * FROM (SELECT *, RANK() OVER (ORDER BY balance DESC) rank FROM jasinousers) WHERE rank <= 10")
+        rankings = self.dbCursor.fetchall()
+
+        finalStr = ">>> "
+        for entry in rankings:
+            # Last value in entry is rank with this type of query. 
+            # Our table has column 1 and 2 as the display name and balance, so get them this way.
+            if entry[0] == ctx.author.id:
+                finalStr += f"**{entry[-1]}: {entry[1]} (${entry[2]})**\n"
+            else:
+                finalStr += f"{entry[-1]}: {entry[1]} (${entry[2]})\n"
+        await ctx.send(finalStr)
+
+        pass
 
     # Simple idea friend had where there is a 1/20,000,000 chance every second of someone receiving
     # $5 from everyone on our server.

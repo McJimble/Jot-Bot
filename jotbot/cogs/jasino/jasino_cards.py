@@ -158,6 +158,7 @@ class Blackjack():
             card = hand[i]
             bjVal = card.getBlackJackValue()
             if card.value == 14:
+                tot += 1
                 aceCount += 1
             else:
                 tot += bjVal
@@ -165,10 +166,10 @@ class Blackjack():
         # Account for aces last in case they make user bust; this way we don't
         # have to sort or something to check for this.
         for i in range(0, aceCount):
-            if tot + 11 > 21:
-                tot += 1
+            if (tot + 10) <= 21:
+                tot += 10
             else:
-                tot += 11
+                break
 
         return tot
 
@@ -187,10 +188,7 @@ class Blackjack():
 
         pLength = len(self.player)
         for i in range(0, pLength):
-            if i == dLength - 1:
-                ret += "??"
-            else:
-                ret += str(self.player[i])
+            ret += str(self.player[i])
             if i < pLength - 1:
                 ret += ','
 
@@ -245,7 +243,7 @@ class Blackjack():
         totDealer = Blackjack.getHandBJValue(self.dealer)
         totPlayer = Blackjack.getHandBJValue(self.player)
 
-        if totPlayer == 21 and totDealer != 21 and self.state == Blackjack.State.ongoing:
+        if totPlayer == 21 and totDealer < 21 and totDealer >= 17 and self.state == Blackjack.State.ongoing:
             self.lastGameLoopOutcome += "You beat the dealer with a blackjack!\n"
             self.state = Blackjack.State.playerWin
             self.gameOver = True
