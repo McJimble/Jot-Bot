@@ -1,20 +1,23 @@
 import discord
 import logging
+
 from discord.ext import commands, tasks
 from random import *
 
 class JotBot(commands.Bot):
 
     def __init__(self):
+        super().__init__(intents=discord.Intents.all(), command_prefix='!', case_insensitive=True)
 
-        super().__init__(command_prefix='!', case_insensitive=True)
+    async def setup_hook(self) -> None:
 
         # If this bot got any bigger, probably don't want to do this but whatever.
-        self.extensions_def = ['cogs.fun_text', 'cogs.jasino.jasino']
+        # Also my backasswards file structure/naming convention has made itself apparent with this.
+        self.extensions_def = ['cogs.fun_text', 'cogs.jasino.jasino', 'cogs.music_and_sfx.music_and_sfx']
 
         for extension in self.extensions_def:
             try:
-                self.load_extension(extension)
+                await self.load_extension(extension)
             except Exception as e:
                 print(f'Could not load extension: {extension}')
                 print(e)

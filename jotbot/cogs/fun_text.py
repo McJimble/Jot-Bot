@@ -1,6 +1,9 @@
 import discord
+
 from discord.ext import commands
 from random import *
+
+from .server_only_cog import *
 
 vowels = ['a', 'e', 'i', 'o', 'u']
 exclude = ["the", "i\'m", "and"]
@@ -9,9 +12,9 @@ excludefirsts = ['w']
 locFileName = "res/Locations.txt"
 
 # Generic text commands that are not very useful
-class FunTextCog(commands.Cog, name = "Fun Text"):
+class FunTextCog(ServerOnlyCog, name = "Fun Text"):
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.locations_def = str()
         self.reread_loc_file()
@@ -154,5 +157,5 @@ class FunTextCog(commands.Cog, name = "Fun Text"):
         await ctx.send("Current droppin' locations: \n" + "".join(toPrint))
 
 
-def setup(bot):
-    bot.add_cog(FunTextCog(bot))
+async def setup(bot):
+    await bot.add_cog(FunTextCog(bot))

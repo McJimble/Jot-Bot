@@ -3,6 +3,7 @@ import sqlite3
 from .jasino_cards import *
 from .jasino_random import *
 from .jasino_slots import *
+from ..server_only_cog import ServerOnlyCog
 
 from discord.ext import commands, tasks
 from random import *
@@ -16,7 +17,7 @@ slotSizeY = 4
 # Casino but the 'C' is 'J' lol
 class JasinoCog(commands.Cog, name = "jasino"):
 
-    def __init__(self, bot):
+    def __init__(self, bot: commands.Bot):
         self.bot = bot
         self.jasinoChannel = 966891187535511552
         self.lottery_jimmy_old.start()
@@ -451,9 +452,11 @@ class JasinoCog(commands.Cog, name = "jasino"):
             await self.bot.get_channel(self.jasinoChannel).send(winner.upper() + " WINS $5 FROM EVERY USER ON THE SERVER!!! @everyone")
 
     @commands.command()
-    async def set_jasino_channel(self, ctx, id: int):
+    async def set_jasino_channel(self, ctx: commands.Context, id: int):
+        if ctx.guild is None:
+            return None
         self.jasinoChannel = id
         print(id)
 
-def setup(bot):
-    bot.add_cog(JasinoCog(bot))
+async def setup(bot):
+    await bot.add_cog(JasinoCog(bot))
