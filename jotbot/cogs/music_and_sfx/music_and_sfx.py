@@ -334,7 +334,7 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
         for i, song in enumerate(state.musicQueue[start:end], start=start):
             queue += '`{0}.` [**{1.source.title}**]({1.source.url})\n'.format(i + 1, song)
 
-        embed = (discord.Embed(title='Queue view for {}'.format(user),description='**{} tracks:**\n\n{}'.format(len(state.musicQueue), queue))
+        embed = (discord.Embed(title='Queue view for {}'.format(requestAuthor.display_name),description='**{} tracks:**\n\n{}'.format(len(state.musicQueue), queue))
                  .set_footer(text='Viewing page {}/{}'.format(page, pages)))
         return embed
 
