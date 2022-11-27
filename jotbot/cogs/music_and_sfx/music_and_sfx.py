@@ -178,11 +178,10 @@ class SongQueue(asyncio.Queue):
 # it's just here to avoid doing some dictionary with list values bullshit
 class MultiPageEmbed():
 
-    def __init__(self, parentCog: commands.Cog, message: discord.Message, time_remaining=20, current_page=1):
+    def __init__(self, message: discord.Message, time_remaining=20, current_page=1):
         self.message = message
         self.time_remaining = time_remaining
         self.current_page = current_page
-        self.parentCog = parentCog
 
 class VoteProposal():
 
@@ -322,23 +321,25 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
         for state in self.voice_states.values():
             self.bot.loop.create_task(state.stop())
 
-    def generate_queue_embed(self, state: VoiceState, page: int):
+    def generate_queue_embed(self, requestAuthor: discord.User, state: VoiceState, page: int):
 
         items_per_page = 10
         pages = math.ceil(len(state.musicQueue) / items_per_page)
-        
+
+        page = max(min(pages, page), 1)
+
         start = (page - 1) * items_per_page
         end = start + items_per_page
         queue = ''
         for i, song in enumerate(state.musicQueue[start:end], start=start):
             queue += '`{0}.` [**{1.source.title}**]({1.source.url})\n'.format(i + 1, song)
 
-        embed = (discord.Embed(description='**{} tracks:**\n\n{}'.format(len(state.musicQueue), queue))
+        embed = (discord.Embed(title='Queue view for {}'.format(user),description='**{} tracks:**\n\n{}'.format(len(state.musicQueue), queue))
                  .set_footer(text='Viewing page {}/{}'.format(page, pages)))
         return embed
 
-    async def edit_and_update_queue_message(self, state: VoiceState, queueMsg: MultiPageEmbed, newPage: int):
-        newEmb = self.generate_queue_embed(state, newPage)
+    async def edit_and_update_queue_message(self, author: discord.User, state: VoiceState, queueMsg: MultiPageEmbed, newPage: int):
+        newEmb = self.generate_queue_embed(author, state, newPage)
         newMsg = await queueMsg.message.edit(embed=newEmb)
         newMsg.add_reaction('⏪')
         newMsg.add_reaction('◀')
@@ -444,7 +445,7 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
     @commands.command(aliases=['q'])
     async def queue(self, ctx: commands.Context, *, pg: int):
         async def send_and_react(state):
-            emb = self.generate_queue_embed(state, pg)
+            emb = self.generate_queue_embed(ctx.author, state, pg)
             msg = await ctx.send(embed=emb)
             msg.add_reaction('⏪')
             msg.add_reaction('◀')
@@ -468,7 +469,7 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
             pass
         else:
             msg = await send_and_react(state)
-            listener = MultiPageEmbed(self, msg, page=pg)
+            listener = MultiPageEmbed(msg, page=pg)
             listener.message = msg
             state.cooldowns['q'] = std_cooldown
             self.listening_queue_msgs[ctx.author.id] = listener
@@ -491,20 +492,21 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
                 state.skip()
 
         # Check for queue reaction.
-        qListener = self.listening_queue_msgs[reaction.message.author.id]
-        state = self.voice_states.get(reaction.message.author.guild.id)
+        auth = reaction.message.author
+        qListener = self.listening_queue_msgs[auth.id]
+        state = self.voice_states.get(auth.guild.id)
         if qListener:
             if reaction.emoji == '⏪':
-                self.edit_and_update_queue_message(state, qListener, 1)
+                self.edit_and_update_queue_message(auth, state, qListener, 1)
                 pass
             elif reaction.emoji == '◀':
-                self.edit_and_update_queue_message(state, qListener, qListener.pg - 1)
+                self.edit_and_update_queue_message(auth, state, qListener, qListener.pg - 1)
                 pass
             elif reaction.emoji == '▶':
-                self.edit_and_update_queue_message(state, qListener, qListener.pg + 1)
+                self.edit_and_update_queue_message(auth, state, qListener, qListener.pg + 1)
                 pass
             elif reaction.emoji == '⏩':
-                self.edit_and_update_queue_message(state, qListener, math.ceil(len(state.musicQueue) / 10))
+                self.edit_and_update_queue_message(auth, state, qListener, math.ceil(len(state.musicQueue) / 10))
                 pass
             pass
 
