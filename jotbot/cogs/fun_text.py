@@ -55,7 +55,7 @@ class FunTextCog(ServerOnlyCog, name = "Fun Text"):
         return finalJimmify
 
 
-    @commands.command()
+    @commands.command(name='Jimmify')
     async def jimmify(self, ctx, *args):
 
         msg = str(ctx.message.content).split(' ')
@@ -67,7 +67,7 @@ class FunTextCog(ServerOnlyCog, name = "Fun Text"):
         finalJimmify = self.letterify(msg, 'j')
         await ctx.send(" ".join(finalJimmify))
 
-    @commands.command()
+    @commands.command(name='Mattify')
     async def mattify(self, ctx, *args):
 
         msg = str(ctx.message.content).split(' ')
@@ -79,13 +79,13 @@ class FunTextCog(ServerOnlyCog, name = "Fun Text"):
         finalJimmify = self.letterify(msg, 'm')
         await ctx.send(" ".join(finalJimmify))
 
-    @commands.command()
+    @commands.command(name='Droppin')
     async def droppin(self, ctx):
         val = randint(0, len(self.fortnitelocations_def) - 1)
         await ctx.send(self.fortnitelocations_def[val])
         pass
 
-    @commands.command()
+    @commands.command(name='SetDroppin')
     async def set_droppin(self, ctx, *args):
 
         if args == None:
@@ -104,7 +104,7 @@ class FunTextCog(ServerOnlyCog, name = "Fun Text"):
         self.reread_loc_file()
         await ctx.send("Locations list successfully overwritten and changed to: \n" + ", ".join(args))
 
-    @commands.command()
+    @commands.command(name='AddDroppin')
     async def add_droppin(self, ctx, *args):
         if args == None:
             await ctx.send("Error: no locations given with command. Locations are unchanged.")
@@ -118,7 +118,7 @@ class FunTextCog(ServerOnlyCog, name = "Fun Text"):
         self.reread_loc_file()
         await ctx.send(f"Added {toAdd} to locations list")
 
-    @commands.command()
+    @commands.command(name='RemoveDroppin')
     async def remove_droppin(self, ctx, *args):
 
         original = " ".join(args)
@@ -144,7 +144,7 @@ class FunTextCog(ServerOnlyCog, name = "Fun Text"):
 
         await ctx.send(f"Successfully removed the location: {original}")
 
-    @commands.command()
+    @commands.command(name='ShowDroppin')
     async def show_droppin(self, ctx):
 
         toPrint = self.fortnitelocations_def

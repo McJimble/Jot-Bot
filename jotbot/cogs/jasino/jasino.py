@@ -15,11 +15,11 @@ slotSizeX = 4
 slotSizeY = 4
 
 # Casino but the 'C' is 'J' lol
-class JasinoCog(commands.Cog, name = "jasino"):
+class JasinoCog(commands.Cog, name = "Jasino"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.jasinoChannel = 966891187535511552
+        self.jasinoChannel = {598680030591188997: 966891187535511552}
         self.lottery_jimmy_old.start()
         self.award_money_all.start()
         self.slotColorWin = discord.Colour.green()
@@ -173,7 +173,7 @@ class JasinoCog(commands.Cog, name = "jasino"):
 
         return (bet, balance)
 
-    @commands.command()
+    @commands.command(name='SlotHelp', help='Explains the slots with a more detailed message')
     async def slothelp(self, ctx):
         useStr = "**Usage**\n!slots <bet amount> : spin the slots, taking the bet amount from your account\n" "!slots allin : spin the slots, using all the money in your account\n"
 
@@ -182,7 +182,7 @@ class JasinoCog(commands.Cog, name = "jasino"):
             iconInfo += f"{icon.iconEncoding}: ${icon.payout} {icon.extraHelpInfo()}\n"
         await ctx.send(f"{useStr}{iconInfo}")
 
-    @commands.command()
+    @commands.command(name='Slots', help='Spins a 4x4 slot using the specified bet amount.')
     async def slots(self, ctx, bet):
 
         temp = await self.verifyBet(ctx, bet)
@@ -262,11 +262,7 @@ class JasinoCog(commands.Cog, name = "jasino"):
 
         await ctx.send(embed=slotEmbed)
 
-    @commands.command()
-    async def bj(self, ctx, arg: str):
-        await self.blackjack(ctx, arg)
-
-    @commands.command()
+    @commands.command(name='BlackJack', aliases=['bj'], help='Starts a blackjack game with the specified bet amount. **Shorthand: !bj**')
     async def blackjack(self, ctx, arg: str):
         bjState = self.getUserBJState(ctx.author)
         betData = await self.verifyBet(ctx, arg, False)
@@ -368,7 +364,7 @@ class JasinoCog(commands.Cog, name = "jasino"):
 
         await ctx.send(embed=bjEmbed)
 
-    @commands.command()
+    @commands.command(name='Balance', help='Shows your current Jasino balance')
     async def balance(self, ctx):
         user = ctx.author
         balance = self.verifyDBEntry(user)
@@ -381,8 +377,8 @@ class JasinoCog(commands.Cog, name = "jasino"):
         self.dbCursor.execute(sql)
         self.localDB.commit()
 
-    @commands.command()
-    async def rolldice(self, ctx, amt: int):
+    @commands.command(name='RollDice', aliases=['roll'], help='Rolls a 6-pip dice the specified number of times, returning to total of all rolled values.')
+    async def rolldice(self, ctx, *, amt=1):
 
         rollTotal = 0
         for i in range(amt):
@@ -390,7 +386,7 @@ class JasinoCog(commands.Cog, name = "jasino"):
 
         await ctx.send(f"You rolled a: {rollTotal}")
 
-    @commands.command()
+    @commands.command(name='JasinoRanking', aliases=['jr'], help='Shows your ranking in the Jasino leaderboard on your server.')
     async def jasinoranking(self, ctx):
         userID = ctx.author.id
 
@@ -419,7 +415,7 @@ class JasinoCog(commands.Cog, name = "jasino"):
         await ctx.send(finalStr)
         pass
 
-    @commands.command()
+    @commands.command(name='Jeaderboard', help='Shows the top 10 highest balances in the Jasino')
     async def jeaderboard(self, ctx):
 
         self.dbCursor.execute(f"SELECT * FROM (SELECT *, RANK() OVER (ORDER BY balance DESC) rank FROM jasinousers) WHERE rank <= 10")
@@ -451,10 +447,11 @@ class JasinoCog(commands.Cog, name = "jasino"):
             winner = names[randint(0, len(names) - 1)]
             await self.bot.get_channel(self.jasinoChannel).send(winner.upper() + " WINS $5 FROM EVERY USER ON THE SERVER!!! @everyone")
 
-    @commands.command()
+    @commands.command(name='SetJasinoChannel', help='Sets the channel that the Jasino can be used in. Provide the channel\'s ID')
     async def set_jasino_channel(self, ctx: commands.Context, id: int):
-        if ctx.guild is None:
-            return None
+        if not ctx.author.guild_permissions.administrator:
+            return
+
         self.jasinoChannel = id
         print(id)
 

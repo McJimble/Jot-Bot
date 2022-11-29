@@ -14,8 +14,8 @@ from ..server_only_cog import ServerOnlyCog
 yes_reaction = '🟩'
 no_reaction = '🟥'
 std_cooldown = 5
-queue_check_cooldown = 20
-now_cooldown = 10
+pause_resume_cooldown = 10
+temp_msg_cooldown = 25
 
 # Since I only have like 30 hours of python coding experience in my life,
 # I took most of the supporting classes from the link below.
@@ -120,15 +120,16 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
         duration = []
         if days > 0:
-            duration.append('{:02d}:'.format(days))
+            duration.append('{:02d}'.format(days))
         if hours > 0:
-            duration.append('{:02d}:'.format(hours))
-        if minutes > 0:
-            duration.append('{:02d}:'.format(minutes))
-        if seconds > 0:
-            duration.append('{:02d}:'.format(seconds))
+            duration.append('{:02d}'.format(hours))
 
-        return ', '.join(duration)
+        duration.append('{:02d}'.format(minutes))
+        duration.append('{:02d}'.format(seconds))
+
+        finalstr = str(':'.join(duration))
+        finalstr.removesuffix(':')
+        return finalstr
 
 class Song:
     def __init__(self, source: YTDLSource):
@@ -138,12 +139,12 @@ class Song:
     def create_embed(self):
         embed = (discord.Embed(title='Now playing',
                                description='```css\n{0.source.title}\n```'.format(self),
-                               color=discord.Color.blurple())
+                               color=discord.Color.brand_green())
                  .add_field(name='Duration', value=self.source.duration)
                  .add_field(name='Requested by', value=self.requester.mention)
                  .add_field(name='Uploader', value='[{0.source.uploader}]({0.source.uploader_url})'.format(self))
                  .add_field(name='URL', value='[Click]({0.source.url})'.format(self))
-                 .set_thumbnail(url=self.source.thumbnail))
+                 .set_image(url=self.source.thumbnail))
 
         return embed
 
@@ -194,7 +195,7 @@ class VoiceState():
     def __init__(self, creator: commands.Cog, bot: commands.Bot, context: commands.Context):
         self.bot = bot
         self.creator = creator
-        self._context = context
+        self.context = context
         self._musicQueue = SongQueue()
 
         self.next = asyncio.Event()
@@ -202,8 +203,10 @@ class VoiceState():
         self.voice = None
         self.currentChannel = None
 
+        self.exists = True
         self.loop = False
-        self.volume = 0.5       
+        self.volume = 1.0
+        self.volume_fac = 0.5       
         self.skip_proposal = None
 
         self.cooldowns = dict() # [cooldown_name (str), seconds_until_usable]
@@ -225,18 +228,14 @@ class VoiceState():
 
 
     @property
-    def context(self) -> commands.Context:
-        return self._context
-
-    @property
-    def musicQueue(self) -> asyncio.Queue:
+    def musicQueue(self) -> SongQueue:
         return self._musicQueue
 
     def is_playing(self) -> bool:
         return self.voice and self.current
 
     def shuffle(self):
-        self.musicQueue.suffle()
+        self.musicQueue.shuffle()
 
     def clear_queue(self) -> bool:
         if self.musicQueue.empty():
@@ -246,17 +245,8 @@ class VoiceState():
             self._musicQueue.get_nowait()
             self._musicQueue.task_done()
 
-    def remove_queue_element(self, remVal: int) -> bool:
-        if self._musicQueue.empty():
-            return False
-
-        temp = SongQueue()
-        for ind in range(self._musicQueue.qsize()):
-            popVal = self._musicQueue.get_nowait()
-            if ind != remVal:
-                temp.put_nowait(popVal)
-        
-        self._musicQueue = temp
+    def remove_queue_element(self, remVal: int):
+        self.musicQueue.remove(remVal)
 
     async def audio_player_task(self):
         while True:
@@ -268,15 +258,25 @@ class VoiceState():
                 # the player will disconnect due to performance
                 # reasons.
                 try:
-                    async with timeout(180):  # 3 minutes
+                    async with timeout(60):  # 1 minute
                         self.current = await self._musicQueue.get()
                 except asyncio.TimeoutError:
+                    self.exists = False
                     self.bot.loop.create_task(self.stop())
+                    del self.creator.voice_states[self.context.guild.id]  # Deletes self, but also reference in cog's stored states.
+                    del self
                     return
 
-            self.current.source.volume = self.volume
-            self.voice.play(self.current.source, after=self.play_next_song)
-            await self.current.source.channel.send(embed=self.current.create_embed())
+                #print('playing new')
+                self.current.source.volume = self.volume * self.volume_fac
+                self.voice.play(self.current.source, after=self.play_next_song)
+                await self.current.source.channel.send(embed=self.current.create_embed())
+
+            elif self.loop:
+                #print('playing on loop')
+                self.voice.stop()
+                self.replay = discord.FFmpegPCMAudio(self.current.source.stream_url, **YTDLSource.FFMPEG_OPTIONS)
+                self.voice.play(self.replay, after=self.play_next_song)
 
             await self.next.wait()
 
@@ -286,15 +286,19 @@ class VoiceState():
 
         self.next.set()
 
-    def skip(self):
+
+    async def skip(self):
         if self.skip_proposal:
             try:
                 del self.creator.listening_skip_msgs[self.skip_proposal.vote_message.id]
             except Exception as e:
                 return
 
-        if self.is_playing:
+        if self.is_playing():
             self.voice.stop()
+            if not self.musicQueue.empty():
+                self.play_next_song()
+            await self.context.send('Skip was successful.')
 
     async def stop(self):
         self.clear_queue()
@@ -302,10 +306,15 @@ class VoiceState():
         if self.voice:
             await self.voice.disconnect()
             self.voice = None
-        
-    
 
-class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
+    async def set_volume(self, volume: float):
+        self.volume = volume * self.volume_fac
+        if self.is_playing():
+            self.voice.pause()
+            self.current.source.volume = self.volume
+            self.voice.resume()
+
+class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
@@ -313,9 +322,20 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
         self.listening_skip_msgs = dict() # [message_id (int), voice_state]
         self.listening_queue_msgs = dict() # [user_id (int), MultiPageEmbed] 
 
+        self.handle_cooldowns.start()
+
         
     def get_voice_state(self, ctx: commands.Context) -> VoiceState:
-        return self.voice_states[ctx.guild.id]
+        state = self.voice_states.get(ctx.guild.id)
+        return state
+
+    def get_non_bot_members(self, channel: discord.VoiceChannel) -> int:
+        count = 0
+        for mem in channel.members:
+            if not mem.bot:
+                count += 1
+
+        return count
 
     def cog_unload(self):
         for state in self.voice_states.values():
@@ -334,60 +354,70 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
         for i, song in enumerate(state.musicQueue[start:end], start=start):
             queue += '`{0}.` [**{1.source.title}**]({1.source.url})\n'.format(i + 1, song)
 
-        embed = (discord.Embed(title='Queue view for {}'.format(requestAuthor.display_name),description='**{} tracks:**\n\n{}'.format(len(state.musicQueue), queue))
+        embed = (discord.Embed(title='Queue view for {}'.format(requestAuthor.display_name),
+                description='**{} tracks:**\n\n{}'.format(len(state.musicQueue), queue),
+                color=discord.Color.gold())
                  .set_footer(text='Viewing page {}/{}'.format(page, pages)))
+        
         return embed
 
     async def edit_and_update_queue_message(self, author: discord.User, state: VoiceState, queueMsg: MultiPageEmbed, newPage: int):
         newEmb = self.generate_queue_embed(author, state, newPage)
         newMsg = await queueMsg.message.edit(embed=newEmb)
-        newMsg.add_reaction('⏪')
-        newMsg.add_reaction('◀')
-        newMsg.add_reaction('▶')
-        newMsg.add_reaction('⏩')
+        await newMsg.add_reaction('⏪')
+        await newMsg.add_reaction('◀')
+        await newMsg.add_reaction('▶')
+        await newMsg.add_reaction('⏩')
         queueMsg.message = newMsg
-        queueMsg.time_remaining = queue_check_cooldown
+        queueMsg.time_remaining = temp_msg_cooldown
 
     async def cog_command_error(self, ctx: commands.Context, error: commands.CommandError):
         await ctx.send('An error occurred: {}'.format(str(error)))
 
-    async def search(self, ctx: commands.Context):
-        pass
-
-
     @tasks.loop(seconds=1)
     async def handle_cooldowns(self):
-        for id, state in self.voice_states:
-            for cmdVal in state.cooldowns.keys():
+        for state in self.voice_states.values():
+            for cmdVal in state.cooldowns:
                 state.cooldowns[cmdVal] -= 1
+                #print("{0}: {1}".format(cmdVal, state.cooldowns[cmdVal]))
 
+        toDel = []
         for id in self.listening_queue_msgs.keys():
             listener = self.listening_queue_msgs[id]
             listener.time_remaining -= 1
             if listener.time_remaining <= 0:
-                await listener.message.delete()
-                del self.listening_queue_msgs[id]
+                await listener.message.clear_reactions()
+                toDel.append(id)
 
-    @commands.command(aliases = ['j'])
+        for id in toDel:
+            del self.listening_queue_msgs[id]
+        
+
+    @commands.command(name='Join', aliases = ['j'], help='Makes the bot join your current voice channel. Can be used to move the bot as well. **Shorthand: !bj**')
     async def join(self, ctx: commands.Context):
-        if not self.get_voice_state(ctx):
-            self.voice_states[ctx.guild.id] = VoiceState(bot = self.bot, context=ctx)
-        elif self.get_voice_state(ctx).context.voice_client.channel == ctx.author.voice.channel:
+        state = self.get_voice_state(ctx)
+        if not state or state.exists:
+            state = VoiceState(creator=self, bot = self.bot, context=ctx)
+            self.voice_states[ctx.guild.id] = state
+
+        elif state.voice and state.voice.channel == ctx.author.voice.channel:
             raise commands.CommandError('Bot is already in this voice channel')
 
         dest = ctx.author.voice.channel
-        state = self.get_voice_state(ctx)
         if state.voice:
             await state.voice.move_to(dest)
-            if state.voice.context.voice_client.channel != ctx.author.voice.channel:
+            if state.currentChannel != ctx.author.voice.channel:
                 state.context = ctx
         else:
             state.voice = await dest.connect()
 
         state.currentChannel = ctx.author.voice.channel
 
-    @commands.command(aliases = ['p'])
-    async def play(self, ctx: commands.Context, *, search: str):
+    @commands.command(name='Play', aliases = ['p'], help='Searches for a youtube video with the specified search string and adds the first result to the queue. **Shorthand: !p**')
+    async def play(self, ctx: commands.Context, *, search=''):
+        if search == '':
+            return await ctx.send('Please provide an expression to search with this command')
+
         if not self.get_voice_state(ctx):
             await self.join(ctx)
 
@@ -402,60 +432,101 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
                 await self.get_voice_state(ctx).musicQueue.put(song)
                 await ctx.send('{} added to queue.'.format(str(source)))
 
-    @commands.command(aliases=['s'])
-    async def skip(self, ctx: commands.Context):
+    @commands.command(name='VoteSkip', aliases=['vs'], help='Same as !skip, but guarantees a vote is started (instead of being bypassed by admins/mods). **Shorthand: !vs**')
+    async def voteskip(self, ctx: commands.Context):
+        await self.skip(ctx, adminVote='v')
+
+    @commands.command(name='Skip', aliases=['s'], help='Starts a vote skip on the currently playing song. Server admins skip automatically unless !voteskip was used. **Shorthand: !s**')
+    async def skip(self, ctx: commands.Context, *, adminVote=''):
         state = self.get_voice_state(ctx)
+
+        if not state.is_playing():
+            return await ctx.send('Nothing to skip!')
+
+        # Admins can skip, unless they specified to vote as a parameter.
+        if ctx.author.guild_permissions.administrator and state.is_playing():
+            if adminVote.lower() in ['v', 'vote']:
+                await state.skip()
+                return
+
         if state.skip_proposal:
             embed = discord.Embed()
             embed.color = discord.Color.red()
-            embed.title = "{} is already proposed to skip!".format(str(state.current.title))
+            embed.title = "{} is already proposed to skip!".format(str(state.current.source.title))
             embed.description = "[Jump to message and vote here]({})".format(str(state.skip_proposal.vote_message.url))
             await ctx.send(embed=embed)
         else:
-            users = len(state.currentChannel.members) - 1
+            users = self.get_non_bot_members(state.currentChannel)
             embed = discord.Embed()
-            embed.title = '**Skip {}?**'.format(str(state.current.title))
-            embed.descripton = '**{0} out of {1}** users in the channel must react with 🟩 to skip.'.format(int(users / 2), users)
+            embed.title = '**Skip \'{}\'?**'.format(str(state.current.source.title))
+            embed.description = '**{0} out of {1}** users in the channel must react with 🟩 to skip.'.format(int(max(1, users / 2)), users)
             msg = await ctx.send(embed=embed)
             state.skip_proposal = VoteProposal(message=msg)
             await msg.add_reaction('🟩')
             self.listening_skip_msgs[msg.id] = state
 
-    @commands.command(aliases=['pau'])
+    @commands.command(name='Current', aliases=['playing', 'n'], help='Shows the currently playing song. **Shorthands: !playing, !now, !n**')
+    async def now(self, ctx: commands.Context):
+
+        state = self.get_voice_state(ctx)
+        if state.cooldowns['n'] > 0:
+            return await ctx.send("\'Now\' command is on cooldown. Please wait another {} seconds.".format(str(state.cooldowns['n'])))
+
+        state.cooldowns['n'] = std_cooldown
+        await ctx.send(embed=state.current.create_embed())
+
+    @commands.command(name='Pause', aliases=['pau', 'pa'], help='Pauses the music until resumed. **Shorthand: !pau, !pa**')
     async def pause(self, ctx: commands.Context):
+        
+        state = self.get_voice_state(ctx)
+        if state.cooldowns['p'] > 0:
+            return await ctx.send("\'Pause\' command is on cooldown. Please wait another {} seconds.".format(str(state.cooldowns['p'])))
 
+        if state.is_playing() and state.voice.is_playing():
+            state.voice.pause()
+            state.cooldowns['p'] = pause_resume_cooldown
+            await ctx.send("Player is paused.")
         pass
 
-    @commands.command(aliases=['res'])
+    @commands.command(name='Resume', aliases=['res'], help='Resumes the current song if music is currently paused. **Shorthand: !res**')
     async def resume(self, ctx: commands.Context):
+
+        state = self.get_voice_state(ctx)
+        if state.cooldowns['r'] > 0:
+            return await ctx.send("\'Resume\' command is on cooldown. Please wait another {} seconds.".format(str(state.cooldowns['r'])))
+
+        if state.is_playing() and not state.voice.is_playing():
+            state.voice.resume()
+            state.cooldowns['r'] = pause_resume_cooldown
+            await ctx.send("Player is paused.")
         pass
 
-    @commands.command(aliases=['v'])
+    @commands.command(name='Volume', aliases=['v'], help='Sets the volume of the player. Can set values from 0-500%')
     async def volume(self, ctx: commands.Context, *, val: int):
         state = self.get_voice_state(ctx)
-        if not state.cooldowns['v'] > 0:
-            return await ctx.send('Volume command is on cooldown. Please wait {} seconds'.format(str(self.cooldowns['v'])))
+        if state.cooldowns['v'] > 0:
+            return await ctx.send('\'Volume\' command is on cooldown. Please wait {} seconds'.format(str(state.cooldowns['v'])))
         else:
-            val = max(min(300, val), 0)
+            val = max(min(500, val), 0)
             await ctx.send('Setting volume to **{}**'.format(str(val)))
-            state.volume = val / 100
+            await state.set_volume(val / 100)
             state.cooldowns['v'] = std_cooldown
         pass 
 
-    @commands.command(aliases=['q'])
-    async def queue(self, ctx: commands.Context, *, pg: int):
+    @commands.command(name='Queue', aliases=['q'], help='Displays the current queue, with 10 sources per page. React to the response to go to the first, previous, next, and last pages respectively. **Shorthand: !q**')
+    async def queue(self, ctx: commands.Context, *, pg=1):
         async def send_and_react(state):
             emb = self.generate_queue_embed(ctx.author, state, pg)
             msg = await ctx.send(embed=emb)
-            msg.add_reaction('⏪')
-            msg.add_reaction('◀')
-            msg.add_reaction('▶')
-            msg.add_reaction('⏩')
+            await msg.add_reaction('⏪')
+            await msg.add_reaction('◀')
+            await msg.add_reaction('▶')
+            await msg.add_reaction('⏩')
             return msg
 
         state = self.get_voice_state(ctx)
         if state.cooldowns['q'] > 0:
-            return await ctx.send('Queue command used too quickly. Please wait {} seconds.'.format(str(state.cooldowns['q'])))
+            return await ctx.send('\'Queue\' command used too quickly. Please wait {} seconds.'.format(str(state.cooldowns['q'])))
         if len(state.musicQueue) == 0:
             return await ctx.send('Queue is empty!')
 
@@ -464,12 +535,12 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
             await listener.message.delete()
             msg = await send_and_react(state)
             listener.message = msg
-            listener.time_remaining = queue_check_cooldown
+            listener.time_remaining = temp_msg_cooldown
             state.cooldowns['q'] = std_cooldown
             pass
         else:
             msg = await send_and_react(state)
-            listener = MultiPageEmbed(msg, page=pg)
+            listener = MultiPageEmbed(msg, current_page=pg)
             listener.message = msg
             state.cooldowns['q'] = std_cooldown
             self.listening_queue_msgs[ctx.author.id] = listener
@@ -488,36 +559,34 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
             
             # Reaction is valid; add to vote total, and skip song if total >= required / 2
             state.skip_proposal.total_votes += 1
-            if state.skip_proposal.total_votes >= int((len(state.currentChannel.members) - 1) / 2):
-                state.skip()
+            if state.skip_proposal.total_votes >= int(self.get_non_bot_members(state.currentChannel) / 2):
+                await state.skip()
 
-        # Check for queue reaction.
-        auth = reaction.message.author
-        qListener = self.listening_queue_msgs[auth.id]
-        state = self.voice_states.get(auth.guild.id)
-        if qListener:
-            if reaction.emoji == '⏪':
-                self.edit_and_update_queue_message(auth, state, qListener, 1)
-                pass
-            elif reaction.emoji == '◀':
-                self.edit_and_update_queue_message(auth, state, qListener, qListener.pg - 1)
-                pass
-            elif reaction.emoji == '▶':
-                self.edit_and_update_queue_message(auth, state, qListener, qListener.pg + 1)
-                pass
-            elif reaction.emoji == '⏩':
-                self.edit_and_update_queue_message(auth, state, qListener, math.ceil(len(state.musicQueue) / 10))
-                pass
-            pass
-
+        # Check for queue reaction; works if reaction author matches id of someone who recently asked for queue
+        state = self.voice_states.get(user.guild.id)
+        queueListener = self.listening_queue_msgs.get(user.id)
+        if queueListener:
+            match str(reaction.emoji):
+                case '⏪':
+                    await self.edit_and_update_queue_message(user, state, queueListener, 1)
+                    pass
+                case '◀':
+                    await self.edit_and_update_queue_message(user, state, queueListener, queueListener.current_page - 1)
+                    pass
+                case '▶':
+                    await self.edit_and_update_queue_message(user, state, queueListener, queueListener.current_page + 1)
+                    pass
+                case '⏩':
+                    await self.edit_and_update_queue_message(user, state, queueListener, math.ceil(len(state.musicQueue) / 10))
+                    pass
         pass
     
-    @commands.command(aliases=['sh'])
+    @commands.command(name='Shuffle', aliases=['sh'], help='Shuffles the current queue. **Shorthand: !sh**')
     async def shuffle(self, ctx: commands.Context):
         self.get_voice_state(ctx).shuffle()
         pass
 
-    @commands.command(aliases=['l'])
+    @commands.command(name='Loop', aliases=['l'], help='Loops the current songs until this command is used again. **Shorthand: !l**')
     async def loop(self, ctx: commands.Context):
         state = self.get_voice_state(ctx)
         if not state.is_playing():
@@ -525,11 +594,11 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
 
         state.loop = not state.loop
         if state.loop:
-            await ctx.send('{} is now being looped.'.format(str(state.current.source.title)))
+            await ctx.send('**{}** is now being looped.'.format(str(state.current.source.title)))
         else:
             await ctx.send('Loop disabled.')
 
-    @commands.command(aliases=['c', 'clear'])
+    @commands.command(name='ClearQueue', aliases=['c', 'clear'], help='Clears the current queue')
     async def clearQueue(self, ctx: commands.Context):
         state = self.get_voice_state(ctx)
 
@@ -540,7 +609,7 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
             await ctx.send('Queue is already empty.')
         pass
 
-    @commands.command(aliases=['r'])
+    @commands.command(name='Remove', aliases=['r'], help='Removes the specified source index from the queue. Use the same value displayed by !q. **Shorthand: !r**')
     async def remove(self, ctx: commands.Context, *, rem: int):
         state = self.get_voice_state(ctx)
 
@@ -551,7 +620,7 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
 
         state.remove_queue_element(rem)
 
-    @commands.command(aliases=['dc'])
+    @commands.command(name='Disconnect', aliases=['dc'], help='Disconnects the bot from the current voice channel. **Shorthand: !dc**')
     async def disconnect(self, ctx: commands.Context):
         if ctx.author.voice.channel != self.get_voice_state(ctx).context.voice_client.channel:
             raise commands.CommandError('Must be in the same voice channel is the bot to disconnect it.')
@@ -561,18 +630,21 @@ class MusicSFXCog(ServerOnlyCog, name = "music_and_sfx"):
 
     @join.before_invoke
     @play.before_invoke
-    @on_reaction_add.before_invoke
     async def ensure_voice_channel(self, ctx: commands.Context):
         if not ctx.author.voice or not ctx.author.voice.channel:
             raise commands.CommandError('You are not connected to any voice channel.')
 
         if ctx.voice_client:
+            state = self.get_voice_state(ctx)
+            if state and state.voice:
+                return
             if ctx.voice_client.channel != ctx.author.voice.channel:
                 raise commands.CommandError('Bot is already in a voice channel. Use !move to switch channels.')
 
     @loop.before_invoke
     @queue.before_invoke
     @pause.before_invoke
+    @now.before_invoke
     @skip.before_invoke
     @volume.before_invoke
     @resume.before_invoke
