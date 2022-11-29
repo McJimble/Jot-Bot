@@ -445,7 +445,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
         # Admins can skip, unless they specified to vote as a parameter.
         if ctx.author.guild_permissions.administrator and state.is_playing():
-            if adminVote.lower() in ['v', 'vote']:
+            if not adminVote.lower() in ['v', 'vote']:
                 await state.skip()
                 return
 
@@ -453,13 +453,13 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             embed = discord.Embed()
             embed.color = discord.Color.red()
             embed.title = "{} is already proposed to skip!".format(str(state.current.source.title))
-            embed.description = "[Jump to message and vote here]({})".format(str(state.skip_proposal.vote_message.url))
+            embed.description = "[Jump to message and vote here]({})".format(str(state.skip_proposal.vote_message.jump_url))
             await ctx.send(embed=embed)
         else:
             users = self.get_non_bot_members(state.currentChannel)
             embed = discord.Embed()
             embed.title = '**Skip \'{}\'?**'.format(str(state.current.source.title))
-            embed.description = '**{0} out of {1}** users in the channel must react with 🟩 to skip.'.format(int(max(1, users / 2)), users)
+            embed.description = '**{0} out of {1}** users in the channel must react with 🟩 to skip.'.format(math.ceil(max(1, users / 2)), users)
             msg = await ctx.send(embed=embed)
             state.skip_proposal = VoteProposal(message=msg)
             await msg.add_reaction('🟩')
@@ -507,13 +507,13 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         if state.cooldowns['v'] > 0:
             return await ctx.send('\'Volume\' command is on cooldown. Please wait {} seconds'.format(str(state.cooldowns['v'])))
         else:
-            val = max(min(500, val), 0)
-            await ctx.send('Setting volume to **{}**'.format(str(val)))
+            val = max(min(1000, val), 0)
+            await ctx.send('Setting volume to **{}%**'.format(str(val)))
             await state.set_volume(val / 100)
             state.cooldowns['v'] = std_cooldown
         pass 
 
-    @commands.command(name='Queue', aliases=['q'], help='Displays the current queue, with 10 sources per page. React to the response to go to the first, previous, next, and last pages respectively. **Shorthand: !q**')
+    @commands.command(name='Queue', aliases=['q'], help='Displays the current queue, with specified page, 10 sources per page. React to the response to go to the first, previous, next, and last pages respectively. **Shorthand: !q**')
     async def queue(self, ctx: commands.Context, *, pg=1):
         async def send_and_react(state):
             emb = self.generate_queue_embed(ctx.author, state, pg)
@@ -559,8 +559,9 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             
             # Reaction is valid; add to vote total, and skip song if total >= required / 2
             state.skip_proposal.total_votes += 1
-            if state.skip_proposal.total_votes >= int(self.get_non_bot_members(state.currentChannel) / 2):
+            if state.skip_proposal.total_votes >= math.ceil(self.get_non_bot_members(state.currentChannel) / 2):
                 await state.skip()
+                del state.skip_proposal
 
         # Check for queue reaction; works if reaction author matches id of someone who recently asked for queue
         state = self.voice_states.get(user.guild.id)
@@ -649,7 +650,6 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     @volume.before_invoke
     @resume.before_invoke
     @clearQueue.before_invoke
-    @disconnect.before_invoke
     async def voice_state_must_exist(self, ctx: commands.Context):
         if not self.get_voice_state(ctx):
             raise commands.CommandError('Bot must be in a voice channel for this command!')
