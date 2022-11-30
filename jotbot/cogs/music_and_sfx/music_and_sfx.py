@@ -18,7 +18,7 @@ pause_resume_cooldown = 10
 temp_msg_cooldown = 25
 
 # Since I only have like 30 hours of python coding experience in my life,
-# I took most of the supporting classes from the link below.
+# I took most of the supporting classes from the link below, but added some extra stuff for my needs.
 # They are very intuitive ways of writing this stuff and I'd rather not reinvent the wheel
 # https://gist.github.com/vbe0201/ade9b80f2d3b64643d854938d40a0a2d
 
@@ -209,7 +209,7 @@ class VoiceState():
         self.volume_fac = 0.5       
         self.skip_proposal = None
 
-        self.cooldowns = dict() # [cooldown_name (str), seconds_until_usable]
+        self.cooldowns = dict() # {cooldown_name (str): seconds_until_usable}
         self.cooldowns['p'] = 0
         self.cooldowns['r'] = 0
         self.cooldowns['q'] = 0
@@ -318,9 +318,9 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
     def __init__(self, bot: commands.Bot):
         self.bot = bot
-        self.voice_states = dict() # [guild_id (int), voice_state]
-        self.listening_skip_msgs = dict() # [message_id (int), voice_state]
-        self.listening_queue_msgs = dict() # [user_id (int), MultiPageEmbed] 
+        self.voice_states = dict() # {guild_id (int): voice_state}
+        self.listening_skip_msgs = dict() # {message_id (int): voice_state}
+        self.listening_queue_msgs = dict() # {user_id (int): MultiPageEmbed}
 
         self.handle_cooldowns.start()
 
@@ -396,7 +396,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     @commands.command(name='Join', aliases = ['j'], help='Makes the bot join your current voice channel. Can be used to move the bot as well. **Shorthand: !bj**')
     async def join(self, ctx: commands.Context):
         state = self.get_voice_state(ctx)
-        if not state or state.exists:
+        if not state or not state.exists:
             state = VoiceState(creator=self, bot = self.bot, context=ctx)
             self.voice_states[ctx.guild.id] = state
 
