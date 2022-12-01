@@ -260,17 +260,16 @@ class VoiceState():
                 try:
                     async with timeout(60):  # 1 minute
                         self.current = await self._musicQueue.get()
-                        try:
-                            del self.creator.listening_skip_msgs[self.skip_proposal.vote_message.id]
-                        except Exception as e:
-                            pass
                         if self.skip_proposal:
-                            del self.skip_proposal
+                            try:
+                                del self.creator.listening_skip_msgs[self.skip_proposal.vote_message.id]
+                            except Exception as e:
+                                pass
+                            
                 except asyncio.TimeoutError:
                     self.exists = False
                     self.bot.loop.create_task(self.stop())
                     del self.creator.voice_states[self.context.guild.id]  # Deletes self, but also reference in cog's stored states.
-                    del self
                     return
 
                 #print('playing new')
@@ -298,7 +297,7 @@ class VoiceState():
             try:
                 del self.creator.listening_skip_msgs[self.skip_proposal.vote_message.id]
             except Exception as e:
-                return
+                pass
 
         if self.is_playing():
             self.voice.stop()
