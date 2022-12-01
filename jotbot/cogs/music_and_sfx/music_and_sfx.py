@@ -220,11 +220,6 @@ class VoiceState():
 
     def __del__(self):
         self.audio_player.cancel()
-        if self.skip_proposal:
-            try:
-                del self.creator.listening_skip_msgs[self.skip_proposal.vote_message.id]
-            except Exception as e:
-                return
 
 
     @property
@@ -248,6 +243,11 @@ class VoiceState():
     def remove_queue_element(self, remVal: int):
         self.musicQueue.remove(remVal)
 
+    def reset_skip_state(self):
+        if self.skip_proposal:
+            self.creator.listening_skip_msgs.pop(self.skip_proposal.vote_message.id)
+            self.skip_proposal = None
+
     async def audio_player_task(self):
         while True:
             self.next.clear()
@@ -260,16 +260,13 @@ class VoiceState():
                 try:
                     async with timeout(60):  # 1 minute
                         self.current = await self._musicQueue.get()
-                        if self.skip_proposal:
-                            try:
-                                del self.creator.listening_skip_msgs[self.skip_proposal.vote_message.id]
-                            except Exception as e:
-                                pass
-                            
+                        self.reset_skip_state()
+
                 except asyncio.TimeoutError:
                     self.exists = False
                     self.bot.loop.create_task(self.stop())
-                    del self.creator.voice_states[self.context.guild.id]  # Deletes self, but also reference in cog's stored states.
+                    del self.creator.voice_states[self.context.guild.id]
+                    del self
                     return
 
                 #print('playing new')
@@ -293,11 +290,8 @@ class VoiceState():
 
 
     async def skip(self):
-        if self.skip_proposal:
-            try:
-                del self.creator.listening_skip_msgs[self.skip_proposal.vote_message.id]
-            except Exception as e:
-                pass
+        self.reset_skip_state()
+
 
         if self.is_playing():
             self.voice.stop()
@@ -307,6 +301,8 @@ class VoiceState():
 
     async def stop(self):
         self.clear_queue()
+
+        self.reset_skip_state()
 
         if self.voice:
             await self.voice.disconnect()
@@ -566,7 +562,6 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             state.skip_proposal.total_votes += 1
             if state.skip_proposal.total_votes >= math.ceil(self.get_non_bot_members(state.currentChannel) / 2):
                 await state.skip()
-                del state.skip_proposal
 
         # Check for queue reaction; works if reaction author matches id of someone who recently asked for queue
         state = self.voice_states.get(user.guild.id)
