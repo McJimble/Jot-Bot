@@ -260,6 +260,12 @@ class VoiceState():
                 try:
                     async with timeout(60):  # 1 minute
                         self.current = await self._musicQueue.get()
+                        try:
+                            del self.creator.listening_skip_msgs[self.skip_proposal.vote_message.id]
+                        except Exception as e:
+                            pass
+                        if self.skip_proposal:
+                            del self.skip_proposal
                 except asyncio.TimeoutError:
                     self.exists = False
                     self.bot.loop.create_task(self.stop())
@@ -432,19 +438,19 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
                 await self.get_voice_state(ctx).musicQueue.put(song)
                 await ctx.send('{} added to queue.'.format(str(source)))
 
-    @commands.command(name='VoteSkip', aliases=['vs'], help='Same as !skip, but guarantees a vote is started (instead of being bypassed by admins/mods). **Shorthand: !vs**')
+    @commands.command(name='VoteSkip', aliases=['vs'], help='Same as !skip, but guarantees a vote is started (instead of being bypassed by admins/requester). **Shorthand: !vs**')
     async def voteskip(self, ctx: commands.Context):
         await self.skip(ctx, adminVote='v')
 
-    @commands.command(name='Skip', aliases=['s'], help='Starts a vote skip on the currently playing song. Server admins skip automatically unless !voteskip was used. **Shorthand: !s**')
+    @commands.command(name='Skip', aliases=['s'], help='Starts a vote skip on the currently playing song. Server admins OR song requester skip automatically unless !voteskip was used. **Shorthand: !s**')
     async def skip(self, ctx: commands.Context, *, adminVote=''):
         state = self.get_voice_state(ctx)
 
         if not state.is_playing():
             return await ctx.send('Nothing to skip!')
 
-        # Admins can skip, unless they specified to vote as a parameter.
-        if ctx.author.guild_permissions.administrator and state.is_playing():
+        # Admins or song requester can skip, unless they specified to vote as a parameter.
+        if ctx.author.id == state.current.source.requester.id or (ctx.author.guild_permissions.administrator and state.is_playing()):
             if not adminVote.lower() in ['v', 'vote']:
                 await state.skip()
                 return
