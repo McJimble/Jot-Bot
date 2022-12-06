@@ -176,7 +176,7 @@ class SongQueue(asyncio.Queue):
 
 # This is just a container to help me organize Queue logic.
 # Could maybe abstract this better in the future but for now 
-# it's just here to avoid doing some dictionary with list values bullshit
+# it's just here to avoid doing some dictionary with list values bullshit or something
 class MultiPageEmbed():
 
     def __init__(self, message: discord.Message, time_remaining=20, current_page=1):
@@ -265,8 +265,7 @@ class VoiceState():
                 except asyncio.TimeoutError:
                     self.exists = False
                     self.bot.loop.create_task(self.stop())
-                    del self.creator.voice_states[self.context.guild.id]
-                    del self
+                    self.creator.voice_states.pop(self.context.guild.id)
                     return
 
                 #print('playing new')
@@ -391,7 +390,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
                 toDel.append(id)
 
         for id in toDel:
-            del self.listening_queue_msgs[id]
+            self.listening_queue_msgs.pop(id)
         
 
     @commands.command(name='Join', aliases = ['j'], help='Makes the bot join your current voice channel. Can be used to move the bot as well. **Shorthand: !bj**')
@@ -627,7 +626,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             raise commands.CommandError('Must be in the same voice channel is the bot to disconnect it.')
 
         await self.get_voice_state(ctx).stop()
-        del self.voice_states[ctx.guild.id]
+        self.voice_states.pop(ctx.guild.id)
 
     @join.before_invoke
     @play.before_invoke
