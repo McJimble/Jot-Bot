@@ -171,8 +171,13 @@ class SongQueue(asyncio.Queue):
     def shuffle(self):
         random.shuffle(self._queue)
 
-    def remove(self, index: int):
-        del self._queue[index]
+    def remove(self, index: int) -> Song:
+        ret = self._queue[index]
+        if ret:
+            del self._queue[index]
+            return ret
+        
+        return None
 
 # This is just a container to help me organize Queue logic.
 # Could maybe abstract this better in the future but for now 
@@ -241,7 +246,7 @@ class VoiceState():
             self._musicQueue.task_done()
 
     def remove_queue_element(self, remVal: int):
-        self.musicQueue.remove(remVal)
+        return self.musicQueue.remove(remVal)
 
     def reset_skip_state(self):
         if self.skip_proposal:
@@ -250,26 +255,30 @@ class VoiceState():
 
     async def audio_player_task(self):
         while True:
+            print('clearing')
             self.next.clear()
 
             if not self.loop:
-                # Try to get the next song within 3 minutes.
+                # Try to get the next song within 1 minutes.
                 # If no song will be added to the queue in time,
                 # the player will disconnect due to performance
                 # reasons.
                 try:
                     async with timeout(60):  # 1 minute
-                        self.current = await self._musicQueue.get()
+                        print('restarting get await')
+                        self.current = await self.musicQueue.get()
+                        print('got something!!!!!!!!!!!!!!!!!!!')
                         self.reset_skip_state()
 
                 except asyncio.TimeoutError:
                     self.exists = False
                     self.bot.loop.create_task(self.stop())
-                    del self.creator.voice_states[self.context.guild.id]
+                    del self.creator.voice_states[self.context.guild.id] 
                     del self
                     return
 
                 #print('playing new')
+                self.voice.stop()
                 self.current.source.volume = self.volume * self.volume_fac
                 self.voice.play(self.current.source, after=self.play_next_song)
                 await self.current.source.channel.send(embed=self.current.create_embed())
@@ -280,24 +289,28 @@ class VoiceState():
                 self.replay = discord.FFmpegPCMAudio(self.current.source.stream_url, **YTDLSource.FFMPEG_OPTIONS)
                 self.voice.play(self.replay, after=self.play_next_song)
 
+            print('wating...')
             await self.next.wait()
+            print('finished waiting')
 
     def play_next_song(self, error=None):
         if error:
             raise Exception(str(error))
 
+        self.current = None
         self.next.set()
 
 
     async def skip(self):
         self.reset_skip_state()
 
-
         if self.is_playing():
             self.voice.stop()
+            cur = str(self.current.source.title)
             if not self.musicQueue.empty():
                 self.play_next_song()
-            await self.context.send('Skip was successful.')
+
+            await self.context.send(f'Successfully skipped **{cur}**')
 
     async def stop(self):
         self.clear_queue()
@@ -306,6 +319,7 @@ class VoiceState():
 
         if self.voice:
             await self.voice.disconnect()
+            self.voice.cleanup()
             self.voice = None
 
     async def set_volume(self, volume: float):
@@ -391,7 +405,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
                 toDel.append(id)
 
         for id in toDel:
-            del self.listening_queue_msgs[id]
+            self.listening_queue_msgs.pop(id)
         
 
     @commands.command(name='Join', aliases = ['j'], help='Makes the bot join your current voice channel. Can be used to move the bot as well. **Shorthand: !bj**')
@@ -466,7 +480,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             await msg.add_reaction('🟩')
             self.listening_skip_msgs[msg.id] = state
 
-    @commands.command(name='Current', aliases=['playing', 'n'], help='Shows the currently playing song. **Shorthands: !playing, !now, !n**')
+    @commands.command(name='Current', aliases=['playing', 'now', 'n'], help='Shows the currently playing song. **Shorthands: !playing, !now, !n**')
     async def now(self, ctx: commands.Context):
 
         state = self.get_voice_state(ctx)
@@ -616,18 +630,24 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
         if state.musicQueue.empty():
             raise commands.CommandError('Cannot remove from empty queue.')
-        elif rem <= 0 or state.musicQueue.qsize() >  rem - 1:
+        elif rem <= 0 or state.musicQueue.qsize() < rem - 1:
             raise commands.CommandError('Invalid queue index.')
 
-        state.remove_queue_element(rem)
+        remSong = state.remove_queue_element(rem - 1)
+        if remSong:
+            songName = str(remSong.source.title)
+            await ctx.send(f'Successfully removed {songName}')
 
     @commands.command(name='Disconnect', aliases=['dc'], help='Disconnects the bot from the current voice channel. **Shorthand: !dc**')
     async def disconnect(self, ctx: commands.Context):
-        if ctx.author.voice.channel != self.get_voice_state(ctx).context.voice_client.channel:
-            raise commands.CommandError('Must be in the same voice channel is the bot to disconnect it.')
 
-        await self.get_voice_state(ctx).stop()
-        del self.voice_states[ctx.guild.id]
+        state = self.get_voice_state(ctx)
+        if state and state.voice:
+            if ctx.author.voice.channel != self.get_voice_state(ctx).voice.channel:
+                raise commands.CommandError('Must be in the same voice channel is the bot to disconnect it.')
+
+            await state.stop()
+            self.voice_states.pop(ctx.guild.id)
 
     @join.before_invoke
     @play.before_invoke
