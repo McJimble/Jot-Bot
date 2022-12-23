@@ -181,7 +181,7 @@ class SongQueue(asyncio.Queue):
 
 # This is just a container to help me organize Queue logic.
 # Could maybe abstract this better in the future but for now 
-# it's just here to avoid doing some dictionary with list values bullshit
+# it's just here to avoid doing some dictionary with list values bullshit or something
 class MultiPageEmbed():
 
     def __init__(self, message: discord.Message, time_remaining=20, current_page=1):
@@ -273,8 +273,7 @@ class VoiceState():
                 except asyncio.TimeoutError:
                     self.exists = False
                     self.bot.loop.create_task(self.stop())
-                    del self.creator.voice_states[self.context.guild.id] 
-                    del self
+                    self.creator.voice_states.pop(self.context.guild.id)
                     return
 
                 #print('playing new')

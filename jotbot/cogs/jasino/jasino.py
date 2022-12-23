@@ -150,7 +150,7 @@ class JasinoCog(commands.Cog, name = "Jasino"):
     #
     # Returns: Tuple -> (bet: int, balance: int)
     async def verifyBet(self, ctx, bet: str, autoRemove=True):
-        if bet == "allin":
+        if bet.lower() == "allin":
             bet = self.verifyDBEntry(ctx.author)
             if bet == 0:
                 return None
@@ -165,7 +165,7 @@ class JasinoCog(commands.Cog, name = "Jasino"):
 
         balance = self.verifyDBEntry(ctx.author)
         if bet > balance or balance == 0:
-            await ctx.send(f"You don't have enough money to bet that much {ctx.author.name}!")
+            await ctx.send(f"You don't have enough money to bet that much **{ctx.author.name}**!")
             return None
 
         if autoRemove:
@@ -268,6 +268,9 @@ class JasinoCog(commands.Cog, name = "Jasino"):
         betData = await self.verifyBet(ctx, arg, False)
         bet = None
         firstMove = False
+
+        if betData is None and arg.lower() not in ["hit", "stand"]:
+            return
 
         # If no bjState, assume user is trying to bet.
         if len(bjState) <= 0:
