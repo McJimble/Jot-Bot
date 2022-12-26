@@ -265,9 +265,7 @@ class VoiceState():
                 # reasons.
                 try:
                     async with timeout(60):  # 1 minute
-                        print('restarting get await')
                         self.current = await self.musicQueue.get()
-                        print('got something!!!!!!!!!!!!!!!!!!!')
                         self.reset_skip_state()
 
                 except asyncio.TimeoutError:
@@ -288,9 +286,7 @@ class VoiceState():
                 self.replay = discord.FFmpegPCMAudio(self.current.source.stream_url, **YTDLSource.FFMPEG_OPTIONS)
                 self.voice.play(self.replay, after=self.play_next_song)
 
-            print('wating...')
             await self.next.wait()
-            print('finished waiting')
 
     def play_next_song(self, error=None):
         if error:
