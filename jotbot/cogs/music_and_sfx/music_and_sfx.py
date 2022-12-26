@@ -296,7 +296,6 @@ class VoiceState():
         if error:
             raise Exception(str(error))
 
-        self.current = None
         self.next.set()
 
 
