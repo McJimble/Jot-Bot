@@ -255,7 +255,6 @@ class VoiceState():
 
     async def audio_player_task(self):
         while True:
-            print('clearing')
             self.next.clear()
 
             if not self.loop:
@@ -302,13 +301,13 @@ class VoiceState():
             self.voice.stop()
             cur = str(self.current.source.title)
             if not self.musicQueue.empty():
-                self.play_next_song()
-
-            await self.context.send(f'Successfully skipped **{cur}**')
+                await self.context.send(f'Successfully skipped **{cur}**')
+            else:
+                self.current = None
+                await self.context.send(f'Skip was successful.')
 
     async def stop(self):
         self.clear_queue()
-
         self.reset_skip_state()
 
         if self.voice:
