@@ -10,4 +10,4 @@
 
  - Fully functional Youtube/music player that can play audio in a voice channel. Comes with helpful utilities such as skipping, vote skipping, a queue, and volume control
 
-![SongExample](https://user-images.githubusercontent.com/54756070/215255010-f8c1053d-1ed9-429d-bfb4-349d8be5163c.png)
+![SongExample](https://user-images.githubusercontent.com/54756070/215255092-b6ee1fe7-6509-4633-b903-fe3330ea278d.png)
