@@ -1,5 +1,6 @@
 import discord
-import youtube_dl
+import yt_dlp
+import json
 import random
 import asyncio
 import functools
@@ -44,7 +45,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         'options': '-vn',
     }
 
-    ytdl = youtube_dl.YoutubeDL(YTDL_OPTIONS)
+    ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
 
     def __init__(self, ctx: commands.Context, source: discord.FFmpegPCMAudio, *, data: dict, volume: float = 1.0):
         super().__init__(source, volume)
@@ -77,6 +78,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
         partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
         data = await loop.run_in_executor(None, partial)
+        data = yt_dlp.YoutubeDL.sanitize_info(data)
 
         if data is None:
             raise Exception('Couldn\'t find anything that matches `{}`'.format(search))
