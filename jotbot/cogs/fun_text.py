@@ -61,7 +61,7 @@ class FunTextCog(ServerOnlyCog, name = "Fun Text"):
         msg = str(ctx.message.content).split(' ')
         msg.pop(0)
         if len(args) == 0:
-            msg = await ctx.channel.history(limit=2).flatten()
+            msg = [message async for message in ctx.channel.history(limit=2)]
             msg = msg[1].content.split(' ')
 
         finalJimmify = self.letterify(msg, 'j')
@@ -73,7 +73,7 @@ class FunTextCog(ServerOnlyCog, name = "Fun Text"):
         msg = str(ctx.message.content).split(' ')
         msg.pop(0)
         if len(args) == 0:
-            msg = await ctx.channel.history(limit=2).flatten()
+            msg = [message async for message in ctx.channel.history(limit=2)]
             msg = msg[1].content.split(' ')
 
         finalJimmify = self.letterify(msg, 'm')
