@@ -1,5 +1,5 @@
 # Jot Bot
- A small, private discord bot originally created for the purpose of learning more advanced Python techniques, as well as basic backend programming with SQL/SQLite. It is now also a fully functional music bot.
+ A small, private discord bot I had originally created for the purpose of learning more advanced Python techniques, as well as basic backend programming with SQL/SQLite. It is now also a fully functional music bot.
  
  I basically just add whatever features seem cool or useful in the moment for myself or my friends.
  
