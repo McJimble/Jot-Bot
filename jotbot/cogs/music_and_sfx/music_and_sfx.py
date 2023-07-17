@@ -6,6 +6,8 @@ import asyncio
 import functools
 import math
 import itertools
+import sys
+import time
 
 from typing import Union
 from async_timeout import timeout
@@ -14,6 +16,15 @@ from ..server_only_cog import ServerOnlyCog
 
 yes_reaction = '🟩'
 no_reaction = '🟥'
+filledSquare = '■'
+emptySquare = '□'
+emptySquaresInitProgBar = ''
+for _ in range(20):
+    emptySquaresInitProgBar += emptySquare
+
+redHSV = [.01667, .74, .91]
+greenHSV = [.27777, .74, .91]
+
 std_cooldown = 5
 pause_resume_cooldown = 10
 temp_msg_cooldown = 25
@@ -30,12 +41,13 @@ class YTDLSource(discord.PCMVolumeTransformer):
         'audioformat': 'mp3',
         'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
         'restrictfilenames': True,
-        'yesplaylist': True,
+        'noplaylist': True,
         'nocheckcertificate': True,
         'ignoreerrors': False,
         'logtostderr': False,
         'quiet': True,
         'no_warnings': True,
+        'extract_flat': True,
         'default_search': 'auto',
         'source_address': '0.0.0.0',
     }
@@ -51,7 +63,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
         super().__init__(source, volume)
 
         self.requester = ctx.author
-        self.channel = ctx.channel
         self.data = data
 
         self.uploader = data.get('uploader')
@@ -71,69 +82,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
     def __str__(self):
         return '**{0.title}** by **{0.uploader}**'.format(self)
-
-    # Returns a list of YTDL sources for the given search. For single videos, the list will have one sources.
-    # For playlists, each source from the playlist will be included in the list.
-    async def create_sources(cls, ctx: commands.Context, search: str, *, loop: asyncio.BaseEventLoop = None) -> list: 
-        
-        # Processes a single entry and returns the YTDLSource.
-        async def process_entry(loop: asyncio.BaseEventLoop, entry: str):
-            webpage_url = entry['webpage_url']
-            partial = functools.partial(cls.ytdl.extract_info, webpage_url, download=False)
-            processed_info = await loop.run_in_executor(None, partial)
-
-            print(processed_info)
-
-            if processed_info is None:
-                raise Exception('Couldn\'t fetch `{}`'.format(webpage_url))
-
-            if 'entries' not in processed_info:
-                info = processed_info
-            else:
-                info = None
-                while info is None:
-                    try:
-                        info = processed_info['entries'].pop(0)
-                    except IndexError:
-                        raise Exception('Couldn\'t retrieve any matches for `{}`'.format(webpage_url))
-
-            return YTDLSource(ctx, discord.FFmpegPCMAudio(info['url'], **cls.FFMPEG_OPTIONS), data=info)
-        
-        loop = loop or asyncio.get_event_loop()
-
-        partial = functools.partial(cls.ytdl.extract_info, search, download=False, process=False)
-        data = await loop.run_in_executor(None, partial)
-        data = yt_dlp.YoutubeDL.sanitize_info(data)
-
-        print(data)
-
-        if data is None:
-            raise Exception('Couldn\'t find anything that matches `{}`'.format(search))
-
-        sources = []
-
-        # Single video; no 'entries'; just the one video data.
-        if 'entries' not in data:
-            result = process_entry(data)
-            if result is None:
-                raise Exception('Error processing entry `{}`'.format(data))
-            else:
-                sources.append(result)
-
-        # Playlist; go through each entry and add to list.
-        else:
-            entryProcessed = False
-            for entry in data['entries']:
-                if entry:
-                    result = process_entry(entry)
-                    if result is not None:
-                        entryProcessed = True
-                        sources.append(result)
-            
-            if not entryProcessed:
-                raise Exception('Error processing entry `{}`'.format(entry))
-        
-        return sources
 
     @staticmethod
     def parse_duration(duration: int):
@@ -205,7 +153,7 @@ class SongQueue(asyncio.Queue):
 # This is just a container to help me organize Queue logic.
 # Could maybe abstract this better in the future but for now 
 # it's just here to avoid doing some dictionary with list values bullshit or something
-class MultiPageEmbed():
+class TimedReactiveEmbed():
 
     def __init__(self, message: discord.Message, time_remaining=20, current_page=1):
         self.message = message
@@ -232,6 +180,7 @@ class VoiceState():
         self.currentChannel = None
 
         self.exists = True
+        self.extracting_videos = False
         self.loop = False
         self.volume = 1.0
         self.volume_fac = 0.5       
@@ -244,11 +193,56 @@ class VoiceState():
         self.cooldowns['v'] = 0
         self.cooldowns['n'] = 0
 
+        # Represents an active Embed when downloading a playlist. Only one can exist at a time.
+        # When not null, a playlist can be queued for download. Otherwise, user must wait until done.
+        self.active_download_embed = None
+        self.active_download_message = None
+                                        
         self.audio_player = bot.loop.create_task(self.audio_player_task())
 
     def __del__(self):
         self.audio_player.cancel()
 
+    # If no playlist download is occurring, creates and sets the current download embed.
+    # If a playlist download is occurring, updates certain embed info (if provided)
+    async def update_download_embed(self, ctx: commands.Context, data: dict, extractedVideos: int, failedVideos: int):
+        
+        playlistTitle = data['title']
+        totalVideos = data['playlist_count']
+
+        complete = extractedVideos + failedVideos == totalVideos
+        progressStr = 'Complete!' if complete else 'In Progress...'
+
+        embed = discord.Embed()
+        embed.title = 'Extracting videos from playlist *{0}*'.format(playlistTitle)
+
+        totalSquares = len(emptySquaresInitProgBar)
+        fillFrac = float(extractedVideos) / totalVideos
+        filledSquareCnt = int(totalSquares * fillFrac)
+
+        # Text Progress Bar for description
+        downloadProgressStr = str()
+        for i in range(filledSquareCnt):
+            downloadProgressStr += filledSquare
+        embed.description = downloadProgressStr + emptySquaresInitProgBar[filledSquareCnt:]
+
+        # Blend color from red to green, set embed color to this value.
+        h = (1.0 - fillFrac) * redHSV[0] + fillFrac * greenHSV[0]
+        s = redHSV[1]
+        v = redHSV[2]
+        embed.color = discord.Color.from_hsv(h, s, v)
+
+        # Add fields
+        embed.add_field(name='Extracted:', value='{0} / {1}'.format(extractedVideos, totalVideos))
+        embed.add_field(name='Failed Extractions:', value=failedVideos)
+        embed.add_field(name=progressStr, value=' ')
+
+        # Set active values if this is a new message/embed. If they exist, edit current message.
+        if self.active_download_embed is None:
+            self.active_download_embed = embed
+            self.active_download_message = await ctx.send(embed=embed)
+        else:
+            await self.active_download_message.edit(embed=embed)
 
     @property
     def musicQueue(self) -> SongQueue:
@@ -291,10 +285,12 @@ class VoiceState():
                         self.reset_skip_state()
 
                 except asyncio.TimeoutError:
-                    self.exists = False
-                    self.bot.loop.create_task(self.stop())
-                    self.creator.voice_states.pop(self.context.guild.id)
-                    return
+                    if not self.extracting_videos:
+                        self.exists = False
+                        self.bot.loop.create_task(self.stop())
+                        self.creator.voice_states.pop(self.context.guild.id)
+                        return
+                    continue
 
                 #print('playing new')
                 self.voice.stop()
@@ -305,7 +301,7 @@ class VoiceState():
             elif self.loop:
                 #print('playing on loop')
                 self.voice.stop()
-                self.replay = discord.FFmpegPCMAudio(self.current.source.stream_url, **YTDLSource.FFMPEG_OPTIONS)
+                self.replay = discord.FFmpegPCMAudio(source= self.current.source.stream_url, options=YTDLSource.FFMPEG_OPTIONS)
                 self.voice.play(self.replay, after=self.play_next_song)
 
             await self.next.wait()
@@ -372,6 +368,89 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         for state in self.voice_states.values():
             self.bot.loop.create_task(state.stop())
 
+    async def create_sources(self, ctx: commands.Context, search: str, *, loop: asyncio.BaseEventLoop = None) -> list: 
+
+        # Processes a single entry and returns the YTDLSource.
+        async def process_entry(loop: asyncio.BaseEventLoop, entry: str):
+            webpage_url = entry['url']
+            partial = functools.partial(YTDLSource.ytdl.extract_info, webpage_url, download=False)
+            processed_info = await loop.run_in_executor(None, partial)
+
+            if processed_info is None:
+                raise Exception('Couldn\'t fetch `{}`'.format(webpage_url))
+
+            if 'entries' not in processed_info:
+                info = processed_info
+            else:
+                info = None
+                while info is None:
+                    try:
+                        info = processed_info['entries'].pop(0)
+                    except IndexError:
+                        raise Exception('Couldn\'t retrieve any matches for `{}`'.format(webpage_url))
+
+            return YTDLSource(ctx, discord.FFmpegPCMAudio(source=info['url'], options=YTDLSource.FFMPEG_OPTIONS), data=info)
+        
+        loop = loop or asyncio.get_event_loop()
+        state = self.get_voice_state(ctx)
+        if not state:
+            return
+
+        partial = functools.partial(YTDLSource.ytdl.extract_info, search, download=False, process=True)
+        data = await loop.run_in_executor(None, partial)
+        data = yt_dlp.YoutubeDL.sanitize_info(data)
+
+        #print(data)
+
+        if data is None:
+            raise Exception('Couldn\'t find anything that matches `{}`'.format(search))
+
+        sources = []
+
+        # Single video; no 'entries'; just the one video data.
+        if 'entries' not in data:
+            result = await process_entry(loop, data)
+            if result is None:
+                raise Exception('Error processing entry `{}`'.format(data))
+            else:
+                sources.append(result)
+
+        # Playlist; go through each entry and add to list.
+        else:
+            if len(data['entries']) > 100:
+                raise Exception('Cannot extract a playlist larger than 100 videos for performance reasons.')
+            
+            currTime = time.time()
+            prevTime = time.time()
+            videosProcessed = videosFailed = 0
+            entryProcessed = False
+            for entry in data['entries']:
+                try:
+                    result = await process_entry(loop, entry)
+                    if result is not None:
+                        videosProcessed += 1
+                        if entryProcessed == False:
+                            await state.update_download_embed(ctx, data, videosProcessed, videosFailed)
+                            entryProcessed = True
+                        else:
+                            currTime = time.time()
+                            if (currTime - prevTime >= 5):
+                                prevTime = currTime
+                                await state.update_download_embed(ctx, data, videosProcessed, videosFailed)
+                        sources.append(result)
+                    else:
+                        raise Exception('Video failed to process')
+                    
+                except Exception as e:
+                    videosFailed += 1
+            
+            if not entryProcessed:
+                raise Exception('Error processing entry `{}`'.format(entry))
+            else:
+                await state.update_download_embed(ctx, data, videosProcessed, videosFailed)
+
+        return sources
+
     def generate_queue_embed(self, requestAuthor: discord.User, state: VoiceState, page: int):
 
         items_per_page = 10
@@ -392,7 +471,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         
         return embed
 
-    async def edit_and_update_queue_message(self, author: discord.User, state: VoiceState, queueMsg: MultiPageEmbed, newPage: int):
+    async def edit_and_update_queue_message(self, author: discord.User, state: VoiceState, queueMsg: TimedReactiveEmbed, newPage: int):
         newEmb = self.generate_queue_embed(author, state, newPage)
         newMsg = await queueMsg.message.edit(embed=newEmb)
         await newMsg.add_reaction('⏪')
@@ -452,10 +531,17 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         if not self.get_voice_state(ctx):
             await self.join(ctx)
 
+        state = self.get_voice_state(ctx)
+        if not state:
+            return
+
         async with ctx.typing():
             try:
-                sources = await YTDLSource.create_sources(ctx, search, loop=self.bot.loop)
+                state.extracting_videos = True
+                sources = await self.create_sources(ctx, search, loop=self.bot.loop) or []
+                state.extracting_videos = False
             except Exception as e:
+                state.extracting_videos = False
                 await ctx.send('An error occured processing this request: {}'.format(str(e)))
             else:
                 if len(sources) == 0:
@@ -463,14 +549,17 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
                 elif len(sources) == 1:
                     song = Song(sources[0])
                     await self.get_voice_state(ctx).musicQueue.put(song)
-                    await ctx.send('{} added to queue.'.format(str(source)))
+                    await ctx.send('{} added to queue.'.format(str(sources[0])))
                 else:
                     cnt = 0
                     for source in sources:
-                        song = Song(sources[0])
+                        song = Song(source)
                         await self.get_voice_state(ctx).musicQueue.put(song)
                         cnt += 1
-                    await ctx.send('Successfully added {} videos from playlist.'.format(str(cnt)))
+
+                    state.active_download_embed = None
+                    state.active_download_message = None
+                    await ctx.send('Successfully added {} videos from playlist. Check queue for details.'.format(str(cnt)))
     
     @commands.command(name='VoteSkip', aliases=['vs'], help='Same as !skip, but guarantees a vote is started (instead of being bypassed by admins/requester). **Shorthand: !vs**')
     async def voteskip(self, ctx: commands.Context):
@@ -580,7 +669,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             pass
         else:
             msg = await send_and_react(state)
-            listener = MultiPageEmbed(msg, current_page=pg)
+            listener = TimedReactiveEmbed(msg, current_page=pg)
             listener.message = msg
             state.cooldowns['q'] = std_cooldown
             self.listening_queue_msgs[ctx.author.id] = listener
@@ -608,17 +697,18 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         if queueListener:
             match str(reaction.emoji):
                 case '⏪':
-                    await self.edit_and_update_queue_message(user, state, queueListener, 1)
+                    queueListener.current_page = 1
                     pass
                 case '◀':
-                    await self.edit_and_update_queue_message(user, state, queueListener, queueListener.current_page - 1)
+                    queueListener.current_page -= 1
                     pass
                 case '▶':
-                    await self.edit_and_update_queue_message(user, state, queueListener, queueListener.current_page + 1)
+                    queueListener.current_page += 1
                     pass
                 case '⏩':
-                    await self.edit_and_update_queue_message(user, state, queueListener, math.ceil(len(state.musicQueue) / 10))
+                    queueListener.current_page = math.ceil(len(state.musicQueue) / 10)
                     pass
+            await self.edit_and_update_queue_message(user, state, queueListener, queueListener.current_page)
         pass
     
     @commands.command(name='Shuffle', aliases=['sh'], help='Shuffles the current queue. **Shorthand: !sh**')

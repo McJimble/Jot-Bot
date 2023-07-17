@@ -330,9 +330,9 @@ class JasinoCog(commands.Cog, name = "Jasino"):
         dealerHidden = True
 
         if firstMove:
-            bjEmbed.title = f"New game started, {ctx.author.name}"
+            bjEmbed.title = f"New game started, {ctx.author.display_name}"
         else:
-            bjEmbed.title = f"Match ongoing for {ctx.author.name}"
+            bjEmbed.title = f"Match ongoing for {ctx.author.display_name}"
             
         if bjGame.gameOver:
 
@@ -341,15 +341,15 @@ class JasinoCog(commands.Cog, name = "Jasino"):
 
             match bjGame.state:
                 case Blackjack.State.playerWin:
-                    bjEmbed.title = f"You Win, {ctx.author.name}!!"
+                    bjEmbed.title = f"You Win, {ctx.author.display_name}!!"
                     bjEmbed.color = discord.Color.green()
                     pass
                 case Blackjack.State.dealerWin:
-                    bjEmbed.title = f"You lost, {ctx.author.name}..."
+                    bjEmbed.title = f"You lost, {ctx.author.display_name}..."
                     bjEmbed.color = discord.Color.red()
                     pass
                 case Blackjack.State.tie:
-                    bjEmbed.title = f"It's a tie, {ctx.author.name}."
+                    bjEmbed.title = f"It's a tie, {ctx.author.display_name}."
                     bjEmbed.color = discord.Color.dark_gold()
                     pass
         
