@@ -3,7 +3,7 @@
  
  I basically just add whatever features seem cool or useful in the moment for myself or my friends.
  
- It will not be invited to any servers without explicit permission, but feel free to copy whatever code from it you'd like for your own bots!
+ It will not be invited to any servers without explicit permission, but feel free to copy whatever code from it you'd like for your own bot!
  I'd let people add it but Discord's TOS forbids verified bots from playing audio from Youtube, and it's required to be verified after it's in 100 servers.
  
  # Features
