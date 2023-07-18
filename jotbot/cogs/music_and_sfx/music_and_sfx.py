@@ -47,7 +47,6 @@ class YTDLSource(discord.PCMVolumeTransformer):
         'logtostderr': False,
         'quiet': True,
         'no_warnings': True,
-        'extract_flat': True,
         'default_search': 'auto',
         'source_address': '0.0.0.0',
     }
@@ -63,6 +62,7 @@ class YTDLSource(discord.PCMVolumeTransformer):
         super().__init__(source, volume)
 
         self.requester = ctx.author
+        self.channel = ctx.channel
         self.data = data
 
         self.uploader = data.get('uploader')
@@ -292,7 +292,6 @@ class VoiceState():
                         return
                     continue
 
-                #print('playing new')
                 self.voice.stop()
                 self.current.source.volume = self.volume * self.volume_fac
                 self.voice.play(self.current.source, after=self.play_next_song)
@@ -309,7 +308,7 @@ class VoiceState():
     def play_next_song(self, error=None):
         if error:
             raise Exception(str(error))
-
+        
         self.next.set()
 
 
@@ -372,7 +371,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
         # Processes a single entry and returns the YTDLSource.
         async def process_entry(loop: asyncio.BaseEventLoop, entry: str):
-            webpage_url = entry['url']
+            webpage_url = entry['webpage_url']
             partial = functools.partial(YTDLSource.ytdl.extract_info, webpage_url, download=False)
             processed_info = await loop.run_in_executor(None, partial)
 
@@ -385,7 +384,8 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
                 info = None
                 while info is None:
                     try:
-                        info = processed_info['entries'].pop(0)
+                        info = processed_info['entries']
+                        info = info[0]
                     except IndexError:
                         raise Exception('Couldn\'t retrieve any matches for `{}`'.format(webpage_url))
 
@@ -400,26 +400,29 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         data = await loop.run_in_executor(None, partial)
         data = yt_dlp.YoutubeDL.sanitize_info(data)
 
-        #print(data)
-
         if data is None:
             raise Exception('Couldn\'t find anything that matches `{}`'.format(search))
 
         sources = []
 
-        # Single video; no 'entries'; just the one video data.
+        # Data return not as expected. Throw exception.
         if 'entries' not in data:
+            raise Exception('Error processing data `{}`'.format(data))
+        
+        # Single video; no 'entries'; just the one video data.
+        if len(data['entries']) == 1:
             result = await process_entry(loop, data)
             if result is None:
-                raise Exception('Error processing entry `{}`'.format(data))
+                raise Exception('Error processing data `{}`'.format(data))
             else:
                 sources.append(result)
 
+        # Playlist, but too long.
+        elif len(data['entries']) > 100:
+            raise Exception('Cannot extract a playlist larger than 100 videos for performance reasons.')
+        
         # Playlist; go through each entry and add to list.
         else:
-            if len(data['entries']) > 100:
-                raise Exception('Cannot extract a playlist larger than 100 videos for performance reasons.')
-            
             currTime = time.time()
             prevTime = time.time()
             videosProcessed = videosFailed = 0
@@ -433,6 +436,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
                             await state.update_download_embed(ctx, data, videosProcessed, videosFailed)
                             entryProcessed = True
                         else:
+                            # Wait 5 seconds at a time, then update embed.
                             currTime = time.time()
                             if (currTime - prevTime >= 5):
                                 prevTime = currTime
@@ -448,6 +452,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
                 raise Exception('Error processing entry `{}`'.format(entry))
             else:
                 await state.update_download_embed(ctx, data, videosProcessed, videosFailed)
+        
 
         return sources
 
@@ -538,7 +543,11 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         async with ctx.typing():
             try:
                 state.extracting_videos = True
-                sources = await self.create_sources(ctx, search, loop=self.bot.loop) or []
+
+                sources = await self.create_sources(ctx, search, loop=self.bot.loop)
+                if sources is None:
+                    sources = []
+
                 state.extracting_videos = False
             except Exception as e:
                 state.extracting_videos = False
@@ -599,7 +608,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
         state = self.get_voice_state(ctx)
         if state.cooldowns['n'] > 0:
-            return await ctx.send("\'Now\' command is on cooldown. Please wait another {} seconds.".format(str(state.cooldowns['n'])))
+            return await ctx.send("\'Playing\' command is on cooldown. Please wait another {} seconds.".format(str(state.cooldowns['n'])))
 
         state.cooldowns['n'] = std_cooldown
         await ctx.send(embed=state.current.create_embed())
@@ -627,7 +636,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         if state.is_playing() and not state.voice.is_playing():
             state.voice.resume()
             state.cooldowns['r'] = pause_resume_cooldown
-            await ctx.send("Player is paused.")
+            await ctx.send("Resuming Player.")
         pass
 
     @commands.command(name='Volume', aliases=['v'], help='Sets the volume of the player. Can set values from 0-500%')
