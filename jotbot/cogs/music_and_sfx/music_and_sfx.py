@@ -34,7 +34,24 @@ temp_msg_cooldown = 25
 # They are very intuitive ways of writing this stuff and I'd rather not reinvent the wheel
 # https://gist.github.com/vbe0201/ade9b80f2d3b64643d854938d40a0a2d
 
-class YTDLSource(discord.PCMVolumeTransformer):
+class YTDLSource():
+    YTDL_OPTIONS_PLAYLIST = {
+        'format': 'bestaudio/best',
+        'extractaudio': True,
+        'audioformat': 'mp3',
+        'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
+        'restrictfilenames': True,
+        'noplaylist': True,
+        'nocheckcertificate': True,
+        'ignoreerrors': False,
+        'logtostderr': False,
+        'quiet': True,
+        'no_warnings': True,
+        'extract_flat': True,
+        'default_search': 'auto',
+        'source_address': '0.0.0.0',
+    }
+
     YTDL_OPTIONS = {
         'format': 'bestaudio/best',
         'extractaudio': True,
@@ -51,15 +68,19 @@ class YTDLSource(discord.PCMVolumeTransformer):
         'source_address': '0.0.0.0',
     }
 
-    FFMPEG_OPTIONS = {
-        'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
-        'options': '-vn',
-    }
+    FFMPEG_OPTIONS = [
+        '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
+        '-vn',
+    ]
 
     ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
+    ytdl_playlist = yt_dlp.YoutubeDL(YTDL_OPTIONS_PLAYLIST)
 
-    def __init__(self, ctx: commands.Context, source: discord.FFmpegPCMAudio, *, data: dict, volume: float = 1.0):
-        super().__init__(source, volume)
+    def __init__(self, ctx: commands.Context, data: dict, volume: float):
+
+        self.audio_source = None # discord.PCMVolumeTransformer, will be created with get_audio is called. DO NOT CALL DIRECTLY
+        self.ffmpeg_source = None # discord.FFmpegPCMAudio, will be created with get_audio and passed into audio_source. DO NOT CALL!
+        self.volume = volume
 
         self.requester = ctx.author
         self.channel = ctx.channel
@@ -82,6 +103,15 @@ class YTDLSource(discord.PCMVolumeTransformer):
 
     def __str__(self):
         return '**{0.title}** by **{0.uploader}**'.format(self)
+
+    # Create the FFMmpeg source with the stored data from constructor if it doesn't exist.
+    # Can't create it in __init__ or too much memory is used when doing big playlists.
+    @property
+    def audio(self) -> discord.PCMVolumeTransformer:
+        if self.audio_source is None:
+            self.ffmpeg_source = discord.FFmpegPCMAudio(source=self.stream_url, before_options=YTDLSource.FFMPEG_OPTIONS[0], options=YTDLSource.FFMPEG_OPTIONS[1])
+            self.audio_source = discord.PCMVolumeTransformer(self.ffmpeg_source, self.volume)
+        return self.audio_source
 
     @staticmethod
     def parse_duration(duration: int):
@@ -285,7 +315,7 @@ class VoiceState():
                         self.reset_skip_state()
 
                 except asyncio.TimeoutError:
-                    if not self.extracting_videos:
+                    if not self.extracting_videos and self.musicQueue.empty():
                         self.exists = False
                         self.bot.loop.create_task(self.stop())
                         self.creator.voice_states.pop(self.context.guild.id)
@@ -293,14 +323,15 @@ class VoiceState():
                     continue
 
                 self.voice.stop()
-                self.current.source.volume = self.volume * self.volume_fac
-                self.voice.play(self.current.source, after=self.play_next_song)
+                self.current.source.audio.volume = self.volume * self.volume_fac
+                self.voice.play(self.current.source.audio, after=self.play_next_song)
                 await self.current.source.channel.send(embed=self.current.create_embed())
 
             elif self.loop:
                 #print('playing on loop')
                 self.voice.stop()
-                self.replay = discord.FFmpegPCMAudio(source= self.current.source.stream_url, options=YTDLSource.FFMPEG_OPTIONS)
+                ffmpeg = discord.FFmpegPCMAudio(source= self.current.source.stream_url, before_options=YTDLSource.FFMPEG_OPTIONS[0], options=YTDLSource.FFMPEG_OPTIONS[1])
+                self.replay = discord.PCMVolumeTransformer(source=ffmpeg, volume=self.volume)
                 self.voice.play(self.replay, after=self.play_next_song)
 
             await self.next.wait()
@@ -337,7 +368,7 @@ class VoiceState():
         self.volume = volume * self.volume_fac
         if self.is_playing():
             self.voice.pause()
-            self.current.source.volume = self.volume
+            self.current.source.audio.volume = self.volume
             self.voice.resume()
 
 class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
@@ -371,10 +402,13 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
         # Processes a single entry and returns the YTDLSource.
         async def process_entry(loop: asyncio.BaseEventLoop, entry: str):
-            webpage_url = entry['webpage_url']
-            partial = functools.partial(YTDLSource.ytdl.extract_info, webpage_url, download=False)
-            processed_info = await loop.run_in_executor(None, partial)
+            webpage_url = entry.get('webpage_url')
+            if webpage_url is None:
+                webpage_url = entry.get('url')
 
+            partial = functools.partial(YTDLSource.ytdl.extract_info, webpage_url, download=False)
+
+            processed_info = await loop.run_in_executor(None, partial)
             if processed_info is None:
                 raise Exception('Couldn\'t fetch `{}`'.format(webpage_url))
 
@@ -389,14 +423,14 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
                     except IndexError:
                         raise Exception('Couldn\'t retrieve any matches for `{}`'.format(webpage_url))
 
-            return YTDLSource(ctx, discord.FFmpegPCMAudio(source=info['url'], options=YTDLSource.FFMPEG_OPTIONS), data=info)
+            return YTDLSource(ctx, info, volume=self.get_voice_state(ctx).volume)
         
         loop = loop or asyncio.get_event_loop()
         state = self.get_voice_state(ctx)
         if not state:
             return
-
-        partial = functools.partial(YTDLSource.ytdl.extract_info, search, download=False, process=True)
+        
+        partial = functools.partial(YTDLSource.ytdl_playlist.extract_info, search, download=False, process=True)
         data = await loop.run_in_executor(None, partial)
         data = yt_dlp.YoutubeDL.sanitize_info(data)
 
@@ -405,12 +439,8 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
         sources = []
 
-        # Data return not as expected. Throw exception.
+        # Single video; extract just once.
         if 'entries' not in data:
-            raise Exception('Error processing data `{}`'.format(data))
-        
-        # Single video; no 'entries'; just the one video data.
-        if len(data['entries']) == 1:
             result = await process_entry(loop, data)
             if result is None:
                 raise Exception('Error processing data `{}`'.format(data))
@@ -423,6 +453,11 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
         
         # Playlist; go through each entry and add to list.
         else:
+            if state.extracting_videos:
+                await ctx.send('Already extracting a playlist. Please wait before extracting another.')
+                return None
+            
+            state.extracting_videos = True
             currTime = time.time()
             prevTime = time.time()
             videosProcessed = videosFailed = 0
@@ -451,9 +486,9 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             if not entryProcessed:
                 raise Exception('Error processing entry `{}`'.format(entry))
             else:
+                state.extracting_videos = False
                 await state.update_download_embed(ctx, data, videosProcessed, videosFailed)
         
-
         return sources
 
     def generate_queue_embed(self, requestAuthor: discord.User, state: VoiceState, page: int):
@@ -542,19 +577,15 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
         async with ctx.typing():
             try:
-                state.extracting_videos = True
-
                 sources = await self.create_sources(ctx, search, loop=self.bot.loop)
                 if sources is None:
-                    sources = []
-
-                state.extracting_videos = False
+                    return
             except Exception as e:
                 state.extracting_videos = False
                 await ctx.send('An error occured processing this request: {}'.format(str(e)))
             else:
                 if len(sources) == 0:
-                    await ctx.send('Error: URL returned no sources')
+                    await ctx.send('Error: URL returned no results')
                 elif len(sources) == 1:
                     song = Song(sources[0])
                     await self.get_voice_state(ctx).musicQueue.put(song)
@@ -723,6 +754,7 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     @commands.command(name='Shuffle', aliases=['sh'], help='Shuffles the current queue. **Shorthand: !sh**')
     async def shuffle(self, ctx: commands.Context):
         self.get_voice_state(ctx).shuffle()
+        await ctx.send('Successfully shuffled queue. Use !queue for details.')
         pass
 
     @commands.command(name='Loop', aliases=['l'], help='Loops the current songs until this command is used again. **Shorthand: !l**')
