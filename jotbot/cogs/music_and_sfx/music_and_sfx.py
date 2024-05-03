@@ -715,6 +715,19 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             self.listening_queue_msgs[ctx.author.id] = listener
         pass
 
+    @commands.command(name='Reset', aliases=['restart'], help='Stops audio, clears queue, and rejoins voice channel. Use if bot gets stuck.')
+    async def reset(self, ctx: commands.Context):
+        state = self.get_voice_state(ctx)
+
+        # TODO: If this bot gets shared with other servers, need to do an admin or 'DJ' role check for this.
+        if state and state.voice:
+            await state.stop()
+            self.voice_states.pop(ctx.guild.id)
+
+            await self.join(ctx)
+        else:
+            raise commands.CommandError('Bot must be in a voice channel to restart it.')
+
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]):
         if user == self.bot.user or not user.voice:
