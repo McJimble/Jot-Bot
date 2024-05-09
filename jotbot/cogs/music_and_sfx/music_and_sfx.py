@@ -14,6 +14,7 @@ from async_timeout import timeout
 from discord.ext import commands, tasks
 from ..server_only_cog import ServerOnlyCog
 
+jot_certfied = 'jot certified'
 yes_reaction = '🟩'
 no_reaction = '🟥'
 filledSquare = '■'
@@ -603,18 +604,18 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     
     @commands.command(name='VoteSkip', aliases=['vs'], help='Same as !skip, but guarantees a vote is started (instead of being bypassed by admins/requester). **Shorthand: !vs**')
     async def voteskip(self, ctx: commands.Context):
-        await self.skip(ctx, adminVote='v')
+        await self.skip(ctx, certifiedVote='v')
 
-    @commands.command(name='Skip', aliases=['s'], help='Starts a vote skip on the currently playing song. Server admins OR song requester skip automatically unless !voteskip was used. **Shorthand: !s**')
-    async def skip(self, ctx: commands.Context, *, adminVote=''):
+    @commands.command(name='Skip', aliases=['s'], help='Starts a vote skip on the currently playing song. Jot certfied users OR song requester skip automatically unless !voteskip was used. **Shorthand: !s**')
+    async def skip(self, ctx: commands.Context, *, certifiedVote=''):
         state = self.get_voice_state(ctx)
 
         if not state.is_playing():
             return await ctx.send('Nothing to skip!')
 
-        # Admins or song requester can skip, unless they specified to vote as a parameter.
-        if ctx.author.id == state.current.source.requester.id or (ctx.author.guild_permissions.administrator and state.is_playing()):
-            if not adminVote.lower() in ['v', 'vote']:
+        # Admins, jot certified users, or song requester can skip, unless they specified to vote as a parameter.
+        if ctx.author.id == state.current.source.requester.id or ((ctx.author.guild_permissions.administrator or self.is_user_jot_certified(ctx)) and state.is_playing()):
+            if not certifiedVote.lower() in ['v', 'vote']:
                 await state.skip()
                 return
 
@@ -719,7 +720,6 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     async def reset(self, ctx: commands.Context):
         state = self.get_voice_state(ctx)
 
-        # TODO: If this bot gets shared with other servers, need to do an admin or 'DJ' role check for this.
         if state and state.voice:
             await state.stop()
             self.voice_states.pop(ctx.guild.id)
@@ -841,6 +841,26 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     async def voice_state_must_exist(self, ctx: commands.Context):
         if not self.get_voice_state(ctx):
             raise commands.CommandError('Bot must be in a voice channel for this command!')
+        
+    @loop.before_invoke
+    @skip.before_invoke
+    @volume.before_invoke
+    @clearQueue.before_invoke
+    @disconnect.before_invoke
+    @reset.before_invoke
+    @shuffle.before_invoke
+    async def user_must_be_certified(self, ctx: commands.Context):
+        if not self.is_user_jot_certified(ctx):
+            raise commands.CommandError('Cannot use this command, user must be Jot Certified!')
+    
+    def is_user_jot_certified(self, ctx: commands.Context):
+        roles = ctx.author.roles
+        for role in roles:
+            if role.name.lower() == jot_certfied:
+                return True
+            
+        return False
+        
 
 
 async def setup(bot):
