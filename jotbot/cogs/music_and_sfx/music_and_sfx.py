@@ -843,7 +843,6 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
             raise commands.CommandError('Bot must be in a voice channel for this command!')
         
     @loop.before_invoke
-    @skip.before_invoke
     @volume.before_invoke
     @clearQueue.before_invoke
     @disconnect.before_invoke
