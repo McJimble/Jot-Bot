@@ -32,11 +32,17 @@ temp_msg_cooldown = 25
 
 # Since I only have like 30 hours of python coding experience in my life,
 # I took most of the supporting classes from the link below, but added some extra stuff for my needs.
-# They are very intuitive ways of writing this stuff and I'd rather not reinvent the wheel
+# They are already very intuitive ways of writing this stuff and I'd rather not reinvent the wheel
 # https://gist.github.com/vbe0201/ade9b80f2d3b64643d854938d40a0a2d
+
+# Also, due to issues with YT-DLP, this also uses an extension of that found here:
+# https://github.com/coletdjnz/yt-dlp-youtube-oauth2
+# This may be necessary if you get errors about "Sign in to prove you are not a bot".
 
 class YTDLSource():
     YTDL_OPTIONS_PLAYLIST = {
+        'username': 'oauth2',   # REMOVE THIS LINE IF YOU ARE USING BASIC YT-DLP. This is for an extension that gets around IP bans.
+        'password': '',         # REMOVE THIS LINE IF YOU ARE USING BASIC YT-DLP. This is for an extension that gets around IP bans.
         'format': 'bestaudio/best',
         'extractaudio': True,
         'audioformat': 'mp3',
@@ -54,6 +60,8 @@ class YTDLSource():
     }
 
     YTDL_OPTIONS = {
+        'username': 'oauth2', # REMOVE THIS LINE IF YOU ARE USING BASIC YT-DLP. This is for an extension that gets around IP bans.
+        'password': '',       # REMOVE THIS LINE IF YOU ARE USING BASIC YT-DLP. This is for an extension that gets around IP bans.
         'format': 'bestaudio/best',
         'extractaudio': True,
         'audioformat': 'mp3',
@@ -73,7 +81,7 @@ class YTDLSource():
         '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
         '-vn',
     ]
-
+    
     ytdl = yt_dlp.YoutubeDL(YTDL_OPTIONS)
     ytdl_playlist = yt_dlp.YoutubeDL(YTDL_OPTIONS_PLAYLIST)
 
@@ -104,7 +112,7 @@ class YTDLSource():
 
     def __str__(self):
         return '**{0.title}** by **{0.uploader}**'.format(self)
-
+    
     # Create the FFMmpeg source with the stored data from constructor if it doesn't exist.
     # Can't create it in __init__ or too much memory is used when doing big playlists.
     @property
@@ -134,6 +142,7 @@ class YTDLSource():
         return finalstr
 
 class Song:
+
     def __init__(self, source: YTDLSource):
         self.source = source
         self.requester = source.requester
