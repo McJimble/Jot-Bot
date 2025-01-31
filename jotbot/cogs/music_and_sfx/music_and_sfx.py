@@ -319,7 +319,6 @@ class VoiceState():
                     if not self.extracting_videos and self.musicQueue.empty():
                         self.exists = False
                         self.bot.loop.create_task(self.stop())
-                        self.creator.voice_states.pop(self.context.guild.id)
                         return
                     continue
 
@@ -364,6 +363,8 @@ class VoiceState():
             await self.voice.disconnect()
             self.voice.cleanup()
             self.voice = None
+
+        self.creator.voice_states.pop(self.context.guild.id)
 
     async def set_volume(self, volume: float):
         self.volume = volume * self.volume_fac
@@ -720,13 +721,13 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     async def reset(self, ctx: commands.Context):
         state = self.get_voice_state(ctx)
 
-        if state and state.voice:
+        if state:
             await state.stop()
-            self.voice_states.pop(ctx.guild.id)
 
-            await self.join(ctx)
-        else:
-            raise commands.CommandError('Bot must be in a voice channel to restart it.')
+            # Just so error doesn't appear if reset was called by someone outside the channel
+            if not ctx.author.voice or not ctx.author.voice.channel:
+                await self.join(ctx)
+                
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]):
@@ -810,12 +811,8 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     @commands.command(name='Disconnect', aliases=['dc'], help='Disconnects the bot from the current voice channel. **Shorthand: !dc**')
     async def disconnect(self, ctx: commands.Context):
         state = self.get_voice_state(ctx)
-        if state and state.voice:
-            if ctx.author.voice.channel != self.get_voice_state(ctx).voice.channel:
-                raise commands.CommandError('Must be in the same voice channel is the bot to disconnect it.')
-
+        if state:
             await state.stop()
-            self.voice_states.pop(ctx.guild.id)
 
     @join.before_invoke
     @play.before_invoke
