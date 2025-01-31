@@ -319,6 +319,7 @@ class VoiceState():
                     if not self.extracting_videos and self.musicQueue.empty():
                         self.exists = False
                         self.bot.loop.create_task(self.stop())
+                        self.creator.voice_states.pop(self.context.guild.id)
                         return
                     continue
 
@@ -363,8 +364,6 @@ class VoiceState():
             await self.voice.disconnect()
             self.voice.cleanup()
             self.voice = None
-
-        self.creator.voice_states.pop(self.context.guild.id)
 
     async def set_volume(self, volume: float):
         self.volume = volume * self.volume_fac
@@ -723,11 +722,13 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
 
         if state:
             await state.stop()
+            self.voice_states.pop(ctx.guild.id)
 
-            # Just so error doesn't appear if reset was called by someone outside the channel
-            if not ctx.author.voice or not ctx.author.voice.channel:
+            # If user not in voice channel when resetting, don't want an error to appear.
+            if ctx.author.voice and ctx.author.voice.channel:
                 await self.join(ctx)
-                
+        else:
+            raise commands.CommandError('Cannot reset, bot does not currently have voice state with this server.')
 
     @commands.Cog.listener()
     async def on_reaction_add(self, reaction: discord.Reaction, user: Union[discord.Member, discord.User]):
@@ -811,8 +812,12 @@ class MusicSFXCog(ServerOnlyCog, name = "Music/Audio"):
     @commands.command(name='Disconnect', aliases=['dc'], help='Disconnects the bot from the current voice channel. **Shorthand: !dc**')
     async def disconnect(self, ctx: commands.Context):
         state = self.get_voice_state(ctx)
-        if state:
+        if state and state.voice:
+
             await state.stop()
+            self.voice_states.pop(ctx.guild.id)
+        else:
+            raise commands.CommandError('Cannot disconnect; either no voice state exists or bot is not currently in a voice channel')
 
     @join.before_invoke
     @play.before_invoke
